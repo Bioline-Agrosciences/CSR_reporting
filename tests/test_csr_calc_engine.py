@@ -2,9 +2,11 @@
 real business logic executed by the pipeline (the "calculated" indicators'
 formulas). Everything here is testable with no Excel file at all:
 compute_bu_month takes a plain dict, run() plain pandas DataFrames."""
+import openpyxl
 import pandas as pd
 import pytest
 
+import config
 import csr_calc_engine as engine
 
 
@@ -123,3 +125,127 @@ def test_run_ignores_computed_id_absent_from_reference():
     ])
     out = engine.run(reference, raw)
     assert list(out.ID) == ["Wat.1"]
+
+
+# ---------------------------------------------------------------------------
+# validate_against_originals — the one-off check against the original raw
+# Excel files. Unlike the rest of the engine, this one does real file I/O
+# and only communicates through print(), so the tests below build a tiny
+# fake "raw file" per case and read back stdout (capsys) rather than a
+# return value.
+# ---------------------------------------------------------------------------
+
+def _write_fixture_workbook(path, sheets):
+    """sheets: {month_name: {indicator_id: value}}. "February" must always
+    be one of the keys: validate_against_originals unconditionally reads
+    that sheet's column B to build its ID -> row lookup, whichever month is
+    actually being compared."""
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for month, id_to_value in sheets.items():
+        ws = wb.create_sheet(month)
+        for row, (kpi_id, value) in enumerate(id_to_value.items(), start=2):
+            ws.cell(row=row, column=2, value=kpi_id)
+            ws.cell(row=row, column=10, value=value)
+    wb.save(path)
+
+
+@pytest.fixture
+def single_bu(monkeypatch, tmp_path):
+    """Restricts BU_LIST/RAW_FILES to one fake BU pointing at tmp_path, so a
+    test only has to build one small workbook instead of the real six."""
+    monkeypatch.setattr(config, "RAW_FILES", {"TestBU": "testbu.xlsx"})
+    monkeypatch.setattr(config, "RAW_DATA_DIR", tmp_path)
+    monkeypatch.setattr(engine, "BU_LIST", ["TestBU"])
+    return tmp_path / "testbu.xlsx"
+
+
+def test_validate_skips_silently_when_raw_files_are_absent(capsys, single_bu):
+    # single_bu points at a file that is never written: raw_data/ is empty,
+    # which is the normal case for a routine monthly run.
+    engine.validate_against_originals(pd.DataFrame())
+    out = capsys.readouterr().out
+    assert "Validation skipped" in out
+
+
+def test_validate_reports_no_mismatch_when_recalculation_agrees(capsys, single_bu):
+    _write_fixture_workbook(single_bu, {"February": {"Wat.2": 2.0}})
+    consolidated = pd.DataFrame([
+        {"BU": "TestBU", "Month": "February", "ID": "Wat.2", "Value": 2.0},
+    ])
+    engine.validate_against_originals(consolidated)
+    out = capsys.readouterr().out
+    assert "1 values compared" in out
+    assert "0 UNEXPLAINED discrepancy" in out
+
+
+def test_validate_flags_an_undocumented_discrepancy(capsys, single_bu):
+    _write_fixture_workbook(single_bu, {"February": {"Wat.2": 99.0}})
+    consolidated = pd.DataFrame([
+        {"BU": "TestBU", "Month": "February", "ID": "Wat.2", "Value": 2.0},
+    ])
+    engine.validate_against_originals(consolidated)
+    out = capsys.readouterr().out
+    assert "1 UNEXPLAINED discrepancy" in out
+    assert "MISMATCH" in out
+
+
+def test_validate_reports_a_known_correction_separately_from_real_mismatches(
+    capsys, single_bu, monkeypatch,
+):
+    # Same disagreement as the test above, but this time it is a documented,
+    # expected correction (KNOWN_CORRECTIONS) — it must be counted on its
+    # own line, not raised as an unexplained mismatch.
+    monkeypatch.setitem(
+        engine.KNOWN_CORRECTIONS, ("TestBU", "February", "Wat.2"),
+        "test fixture: documented discrepancy",
+    )
+    _write_fixture_workbook(single_bu, {"February": {"Wat.2": 99.0}})
+    consolidated = pd.DataFrame([
+        {"BU": "TestBU", "Month": "February", "ID": "Wat.2", "Value": 2.0},
+    ])
+    engine.validate_against_originals(consolidated)
+    out = capsys.readouterr().out
+    assert "1 expected correction" in out
+    assert "0 UNEXPLAINED discrepancy" in out
+
+
+def test_validate_never_compares_the_january_sheet(capsys, single_bu):
+    # January never had the calculated rows in the original files: even if
+    # a January sheet exists with a wildly different value, it must be
+    # skipped rather than reported as a mismatch.
+    _write_fixture_workbook(single_bu, {
+        "February": {"Wat.2": 2.0},
+        "January": {"Wat.2": 999.0},
+    })
+    consolidated = pd.DataFrame([
+        {"BU": "TestBU", "Month": "February", "ID": "Wat.2", "Value": 2.0},
+        {"BU": "TestBU", "Month": "January", "ID": "Wat.2", "Value": 2.0},
+    ])
+    engine.validate_against_originals(consolidated)
+    out = capsys.readouterr().out
+    assert "1 values compared" in out
+    assert "0 UNEXPLAINED discrepancy" in out
+
+
+def test_validate_skips_a_non_numeric_original_value(capsys, single_bu):
+    # A cell still showing an Excel error (#REF!, #DIV/0!) is read by
+    # openpyxl as a plain string: nothing sensible to compare it against.
+    _write_fixture_workbook(single_bu, {"February": {"Ene.9": "#REF!"}})
+    consolidated = pd.DataFrame([
+        {"BU": "TestBU", "Month": "February", "ID": "Ene.9", "Value": 130.0},
+    ])
+    engine.validate_against_originals(consolidated)
+    out = capsys.readouterr().out
+    assert "0 values compared" in out
+
+
+def test_validate_skips_when_no_recalculated_value_exists_for_that_id_month(capsys, single_bu):
+    # The original file has the ID/month, but the recalculation has nothing
+    # for it (e.g. missing raw input): skip rather than crash on an empty
+    # mine_series.
+    _write_fixture_workbook(single_bu, {"February": {"Wat.2": 2.0}})
+    consolidated = pd.DataFrame(columns=["BU", "Month", "ID", "Value"])
+    engine.validate_against_originals(consolidated)
+    out = capsys.readouterr().out
+    assert "0 values compared" in out
