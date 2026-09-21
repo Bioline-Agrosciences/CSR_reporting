@@ -1,0 +1,24 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Real CSR data (never in git — confidential): reference list +
+# consolidated history, consolidated results. Only the macro template
+# (empty of any data) is tracked. The original raw files and the data entry
+# files live entirely outside this project, on the shared SharePoint drive
+# (see config.RAW_DATA_DIR / config.DATA_ENTRY_DIR) — nothing to ignore
+# here for those, they were never inside the repo to begin with.
+input_data/*
+!input_data/data_entry_template.xlsm
+output_data/
+reporting_csr_bu_collecte_automatisee.md
+
+# Test cache
+.pytest_cache/
