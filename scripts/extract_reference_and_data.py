@@ -12,9 +12,9 @@ This script performs the "old format -> new format" conversion:
          the formula as documentation (see csr_calc_engine.py for the
          executable version of these formulas).
       2. Raw_data_CSR.xlsx — INPUT values only, for all BUs, in long format
-         [BU, Month, ID, Value, Comment], with a "Data quality note" column
-         tracking anything that was automatically corrected (e.g. decimal
-         comma) or still needs a manual fix (unparsable text).
+         [BU, Year, Month, ID, Value, Comment], with a "Data quality note"
+         column tracking anything that was automatically corrected (e.g.
+         decimal comma) or still needs a manual fix (unparsable text).
 
 How the reference list was built
 ---------------------------------
@@ -82,6 +82,14 @@ REFERENCE_MONTH = "February"  # which, as long as the catalog is identical every
 
 MONTHS = ["January", "February", "March", "April", "May", "June", "July",
           "August", "September", "October", "November", "December"]
+
+# The 6 original raw files given to us only ever covered 2026 (no year
+# column in them at all — each was a single-year workbook). Hardcoded here
+# rather than derived from today's date: this script is a one-time
+# historical migration (see module docstring, "never run again" once done),
+# not part of the recurring monthly cycle, so it must always tag its output
+# as 2026 regardless of when it happens to be re-run.
+HISTORICAL_YEAR = 2026
 
 # The 9 rows whose "Monthly value" is a calculation formula (Responsible=CSO)
 # in the original files, PLUS Ref.1 (see docstring above).
@@ -184,10 +192,12 @@ def build_reference() -> pd.DataFrame:
 def build_raw_long(entry_ids: set) -> pd.DataFrame:
     """Walks through the 6 original raw Excel files (every month, every BU)
     and extracts only the values ENTERED by a referent (those whose ID is in
-    entry_ids, so never calculated indicators): one row per (BU, Month,
+    entry_ids, so never calculated indicators): one row per (BU, Year, Month,
     Indicator), with the cleaned value (see parse_raw_value) and the
     referent's comment, if any. This table then becomes Raw_data_CSR.xlsx,
-    the input database for the calculation engine (csr_calc_engine.py)."""
+    the input database for the calculation engine (csr_calc_engine.py). Every
+    row is tagged Year=HISTORICAL_YEAR (2026) — the only year these original
+    files ever covered."""
     records = []
     for bu in config.RAW_FILES:
         wb = openpyxl.load_workbook(_raw_path(bu), data_only=True)
@@ -201,13 +211,13 @@ def build_raw_long(entry_ids: set) -> pd.DataFrame:
                     continue
                 value, note = parse_raw_value(ws.cell(row=r, column=10).value)
                 records.append({
-                    "BU": bu, "Month": month, "ID": idv, "Value": value,
+                    "BU": bu, "Year": HISTORICAL_YEAR, "Month": month, "ID": idv, "Value": value,
                     "Comment": ws.cell(row=r, column=11).value,
                     "Data quality note": note,
                 })
     df = pd.DataFrame(records)
     df["Month"] = pd.Categorical(df["Month"], categories=MONTHS, ordered=True)
-    return df.sort_values(["BU", "Month", "ID"]).reset_index(drop=True)
+    return df.sort_values(["BU", "Year", "Month", "ID"]).reset_index(drop=True)
 
 
 # ---------------------------------------------------------------------------

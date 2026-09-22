@@ -99,8 +99,8 @@ def test_run_merges_computed_and_input_values_with_reference_metadata():
         {"ID": "Wat.2", "Topic": "Water", "KPI": "Water intensity", "Unit": "m3/kEUR", "Kind": "calculated"},
     ])
     raw = pd.DataFrame([
-        {"BU": "BAF", "Month": "January", "ID": "Wat.1", "Value": 100.0},
-        {"BU": "BAF", "Month": "January", "ID": "Env.1", "Value": 50.0},
+        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Wat.1", "Value": 100.0},
+        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Env.1", "Value": 50.0},
     ])
 
     out = engine.run(reference, raw)
@@ -109,7 +109,31 @@ def test_run_merges_computed_and_input_values_with_reference_metadata():
     assert wat2["Value"] == pytest.approx(2.0)
     assert wat2["Kind"] == "calculated"
     assert wat2["Topic"] == "Water"
+    assert wat2["Year"] == 2026
     assert set(out.ID) == {"Wat.1", "Env.1", "Wat.2"}
+
+
+def test_run_keeps_two_years_separate():
+    # Same BU/month/ID in two different years must not be summed or merged
+    # into one row — a year boundary is a hard partition, not just another
+    # grouping key.
+    reference = pd.DataFrame([
+        {"ID": "Wat.1", "Topic": "Water", "KPI": "Water consumption", "Unit": "m3", "Kind": "input"},
+        {"ID": "Env.1", "Topic": "General info", "KPI": "Sales", "Unit": "kEUR", "Kind": "input"},
+        {"ID": "Wat.2", "Topic": "Water", "KPI": "Water intensity", "Unit": "m3/kEUR", "Kind": "calculated"},
+    ])
+    raw = pd.DataFrame([
+        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Wat.1", "Value": 100.0},
+        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Env.1", "Value": 50.0},
+        {"BU": "BAF", "Year": 2027, "Month": "January", "ID": "Wat.1", "Value": 200.0},
+        {"BU": "BAF", "Year": 2027, "Month": "January", "ID": "Env.1", "Value": 50.0},
+    ])
+
+    out = engine.run(reference, raw)
+
+    wat2_by_year = out[out.ID == "Wat.2"].set_index("Year")["Value"]
+    assert wat2_by_year[2026] == pytest.approx(2.0)
+    assert wat2_by_year[2027] == pytest.approx(4.0)
 
 
 def test_run_ignores_computed_id_absent_from_reference():
@@ -120,11 +144,77 @@ def test_run_ignores_computed_id_absent_from_reference():
         {"ID": "Wat.1", "Topic": "Water", "KPI": "Water consumption", "Unit": "m3", "Kind": "input"},
     ])
     raw = pd.DataFrame([
-        {"BU": "BAF", "Month": "January", "ID": "Wat.1", "Value": 100.0},
-        {"BU": "BAF", "Month": "January", "ID": "Env.1", "Value": 50.0},
+        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Wat.1", "Value": 100.0},
+        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Env.1", "Value": 50.0},
     ])
     out = engine.run(reference, raw)
     assert list(out.ID) == ["Wat.1"]
+
+
+# ---------------------------------------------------------------------------
+# build_completion_table — the per-BU/per-month % completion matrix, scoped
+# to CSR-referent-owned indicators only (never Safety/Finance/HR-owned ones,
+# even though those are also Kind == "input"), and to current_year only.
+# ---------------------------------------------------------------------------
+
+def test_build_completion_table_only_counts_csr_referent_owned_indicators():
+    reference = pd.DataFrame([
+        {"ID": "Wat.1", "Kind": "input", "Responsible": "CSR referent"},
+        {"ID": "Ene.1", "Kind": "input", "Responsible": "CSR referent"},
+        {"ID": "Env.1", "Kind": "input", "Responsible": "Finance - Nikola Terzic"},  # excluded
+        {"ID": "Saf.1", "Kind": "input", "Responsible": "H&S manager"},              # excluded
+        {"ID": "Wat.2", "Kind": "calculated", "Responsible": "CSR referent"},        # excluded: calculated
+    ])
+    raw = pd.DataFrame([
+        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Wat.1", "Value": 100.0},
+        # Ene.1 not filled for BAF/January -> should count as missing (1/2 = 50%).
+        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Env.1", "Value": 999.0},  # Finance-owned, ignored
+        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Saf.1", "Value": 999.0},  # H&S-owned, ignored
+    ])
+
+    table = engine.build_completion_table(raw, reference, current_year=2026)
+
+    jan = table[table.BU == "BAF"].iloc[0]
+    assert jan["January"] == "50%"
+
+
+def test_build_completion_table_covers_all_12_months_future_included():
+    reference = pd.DataFrame([{"ID": "Wat.1", "Kind": "input", "Responsible": "CSR referent"}])
+    raw = pd.DataFrame([{"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Wat.1", "Value": 100.0}])
+
+    table = engine.build_completion_table(raw, reference, current_year=2026)
+
+    row = table[table.BU == "BAF"].iloc[0]
+    assert row["January"] == "100%"
+    assert row["December"] == "0%"  # never due, never filled — still shown, not omitted
+    assert set(engine.MONTH_ORDER).issubset(set(table.columns))
+
+
+def test_build_completion_table_has_one_row_per_bu_present_in_raw_data():
+    reference = pd.DataFrame([{"ID": "Wat.1", "Kind": "input", "Responsible": "CSR referent"}])
+    raw = pd.DataFrame([
+        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Wat.1", "Value": 100.0},
+        {"BU": "BFR", "Year": 2026, "Month": "January", "ID": "Wat.1", "Value": None},
+    ])
+
+    table = engine.build_completion_table(raw, reference, current_year=2026)
+
+    assert set(table.BU) == {"BAF", "BFR"}
+    assert table[table.BU == "BFR"].iloc[0]["January"] == "0%"
+
+
+def test_build_completion_table_ignores_other_years():
+    # A BU that only has 2025 data shouldn't pollute the 2026 completion
+    # matrix, and a 2025-only value must not count as "filled" for 2026.
+    reference = pd.DataFrame([{"ID": "Wat.1", "Kind": "input", "Responsible": "CSR referent"}])
+    raw = pd.DataFrame([
+        {"BU": "BAF", "Year": 2025, "Month": "January", "ID": "Wat.1", "Value": 100.0},
+        {"BU": "BFR", "Year": 2026, "Month": "January", "ID": "Wat.1", "Value": 100.0},
+    ])
+
+    table = engine.build_completion_table(raw, reference, current_year=2026)
+
+    assert set(table.BU) == {"BFR"}
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +261,7 @@ def test_validate_skips_silently_when_raw_files_are_absent(capsys, single_bu):
 def test_validate_reports_no_mismatch_when_recalculation_agrees(capsys, single_bu):
     _write_fixture_workbook(single_bu, {"February": {"Wat.2": 2.0}})
     consolidated = pd.DataFrame([
-        {"BU": "TestBU", "Month": "February", "ID": "Wat.2", "Value": 2.0},
+        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "February", "ID": "Wat.2", "Value": 2.0},
     ])
     engine.validate_against_originals(consolidated)
     out = capsys.readouterr().out
@@ -182,7 +272,7 @@ def test_validate_reports_no_mismatch_when_recalculation_agrees(capsys, single_b
 def test_validate_flags_an_undocumented_discrepancy(capsys, single_bu):
     _write_fixture_workbook(single_bu, {"February": {"Wat.2": 99.0}})
     consolidated = pd.DataFrame([
-        {"BU": "TestBU", "Month": "February", "ID": "Wat.2", "Value": 2.0},
+        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "February", "ID": "Wat.2", "Value": 2.0},
     ])
     engine.validate_against_originals(consolidated)
     out = capsys.readouterr().out
@@ -202,7 +292,7 @@ def test_validate_reports_a_known_correction_separately_from_real_mismatches(
     )
     _write_fixture_workbook(single_bu, {"February": {"Wat.2": 99.0}})
     consolidated = pd.DataFrame([
-        {"BU": "TestBU", "Month": "February", "ID": "Wat.2", "Value": 2.0},
+        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "February", "ID": "Wat.2", "Value": 2.0},
     ])
     engine.validate_against_originals(consolidated)
     out = capsys.readouterr().out
@@ -219,8 +309,8 @@ def test_validate_never_compares_the_january_sheet(capsys, single_bu):
         "January": {"Wat.2": 999.0},
     })
     consolidated = pd.DataFrame([
-        {"BU": "TestBU", "Month": "February", "ID": "Wat.2", "Value": 2.0},
-        {"BU": "TestBU", "Month": "January", "ID": "Wat.2", "Value": 2.0},
+        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "February", "ID": "Wat.2", "Value": 2.0},
+        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "January", "ID": "Wat.2", "Value": 2.0},
     ])
     engine.validate_against_originals(consolidated)
     out = capsys.readouterr().out
@@ -233,7 +323,7 @@ def test_validate_skips_a_non_numeric_original_value(capsys, single_bu):
     # openpyxl as a plain string: nothing sensible to compare it against.
     _write_fixture_workbook(single_bu, {"February": {"Ene.9": "#REF!"}})
     consolidated = pd.DataFrame([
-        {"BU": "TestBU", "Month": "February", "ID": "Ene.9", "Value": 130.0},
+        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "February", "ID": "Ene.9", "Value": 130.0},
     ])
     engine.validate_against_originals(consolidated)
     out = capsys.readouterr().out
@@ -245,7 +335,7 @@ def test_validate_skips_when_no_recalculated_value_exists_for_that_id_month(caps
     # for it (e.g. missing raw input): skip rather than crash on an empty
     # mine_series.
     _write_fixture_workbook(single_bu, {"February": {"Wat.2": 2.0}})
-    consolidated = pd.DataFrame(columns=["BU", "Month", "ID", "Value"])
+    consolidated = pd.DataFrame(columns=["BU", "Year", "Month", "ID", "Value"])
     engine.validate_against_originals(consolidated)
     out = capsys.readouterr().out
     assert "0 values compared" in out

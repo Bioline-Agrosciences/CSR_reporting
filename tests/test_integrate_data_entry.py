@@ -55,10 +55,11 @@ def test_read_data_entry_file_matches_write_month_sheet_column_layout(tmp_path, 
     wb.remove(wb.active)
     gen.write_month_sheet(wb, "January", [_sample_record()],
                            {("January", "Wat.1"): (123.4, "hello")}, is_current=True)
-    wb.save(tmp_path / "BU1_data_entry_CSR.xlsm")
+    wb.save(tmp_path / "BU1_data_entry_CSR_2026.xlsm")
 
-    df = integ.read_data_entry_file("BU1")
+    df = integ.read_data_entry_file("BU1", year=2026)
 
+    assert (df["Year"] == 2026).all()
     row = df[(df.Month == "January") & (df.ID == "Wat.1")].iloc[0]
     assert row["Value"] == pytest.approx(123.4)
     assert row["Comment"] == "hello"

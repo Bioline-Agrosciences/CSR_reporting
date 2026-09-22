@@ -49,15 +49,24 @@ MONTH_ORDER = ["January", "February", "March", "April", "May", "June", "July",
 
 
 def find_data_quality_notes(raw: pd.DataFrame) -> pd.DataFrame:
-    """Every row with a non-empty "Data quality note"."""
-    return raw[raw["Data quality note"].notna()][["BU", "Month", "ID", "Value", "Data quality note"]]
+    """Every row with a non-empty "Data quality note", across every year
+    present in `raw` (a flag from a prior year is still worth a look, so
+    this one — unlike find_missing_values — is NOT restricted to the
+    current year)."""
+    return raw[raw["Data quality note"].notna()][["BU", "Year", "Month", "ID", "Value", "Data quality note"]]
 
 
-def find_missing_values(raw: pd.DataFrame, input_ids: set, current_month: str) -> pd.DataFrame:
-    """Every (BU, Month, ID) combination, for months up to and including
-    current_month, where an "input" indicator has no value at all — either
-    the row is missing entirely, or its Value is empty. Months after
-    current_month are never flagged."""
+def find_missing_values(raw: pd.DataFrame, input_ids: set, current_year: int, current_month: str) -> pd.DataFrame:
+    """Every (BU, Month, ID) combination, for CURRENT_YEAR and months up to
+    and including current_month, where an "input" indicator has no value at
+    all — either the row is missing entirely, or its Value is empty. Months
+    after current_month are never flagged, and so is any other year: a prior
+    year's raw rows are excluded up front, otherwise a completed year would
+    still get flagged forever as "missing" for the months it never had
+    (BU/indicator combinations that started after that year, for instance),
+    and a future year's early rows (if any exist ahead of schedule) would be
+    compared against due_months that don't apply to them."""
+    raw = raw[raw.Year == current_year]
     due_months = MONTH_ORDER[:MONTH_ORDER.index(current_month) + 1]
     bus = sorted(raw["BU"].unique())
     if not bus or not input_ids:
@@ -74,10 +83,14 @@ def find_missing_values(raw: pd.DataFrame, input_ids: set, current_month: str) -
 
 
 def find_large_variations(consolidated: pd.DataFrame) -> pd.DataFrame:
-    """Every (BU, ID) month-over-month jump bigger than
-    config.VARIATION_THRESHOLD."""
+    """Every (BU, Year, ID) month-over-month jump bigger than
+    config.VARIATION_THRESHOLD. Grouped by Year too (not just BU/ID) so
+    December of one year is never compared to January of the next as if it
+    were a normal month-over-month step — a year boundary is exactly the
+    kind of place a real jump (annual reset, new pricing, etc.) is expected
+    and shouldn't trigger a false anomaly."""
     rows = []
-    for (bu, kpi_id), grp in consolidated.groupby(["BU", "ID"], sort=False):
+    for (bu, year, kpi_id), grp in consolidated.groupby(["BU", "Year", "ID"], sort=False):
         grp = grp.sort_values("Month")
         prev_value, prev_month = None, None
         for _, r in grp.iterrows():
@@ -86,14 +99,14 @@ def find_large_variations(consolidated: pd.DataFrame) -> pd.DataFrame:
                 variation = abs(value - prev_value) / abs(prev_value)
                 if variation > config.VARIATION_THRESHOLD:
                     rows.append({
-                        "BU": bu, "ID": kpi_id,
+                        "BU": bu, "Year": year, "ID": kpi_id,
                         "From": prev_month, "From value": prev_value,
                         "To": r["Month"], "To value": value,
                         "Variation": f"{variation:.0%}",
                     })
             if pd.notna(value):
                 prev_value, prev_month = value, r["Month"]
-    return pd.DataFrame(rows, columns=["BU", "ID", "From", "From value", "To", "To value", "Variation"])
+    return pd.DataFrame(rows, columns=["BU", "Year", "ID", "From", "From value", "To", "To value", "Variation"])
 
 
 def build_summary_table(quality_notes: pd.DataFrame, missing_values: pd.DataFrame,
@@ -108,7 +121,8 @@ def build_summary_table(quality_notes: pd.DataFrame, missing_values: pd.DataFram
     return table
 
 
-def build_email_body(summary_table: pd.DataFrame, current_month: str, attachment_name: str | None) -> str:
+def build_email_body(summary_table: pd.DataFrame, current_year: int, current_month: str,
+                      attachment_name: str | None) -> str:
     """The short PLAIN-TEXT version of the report — used for the console
     print in run_and_send. The actual email uses build_email_html instead,
     so it renders as a real table in Outlook rather than a monospace dump
@@ -116,7 +130,7 @@ def build_email_body(summary_table: pd.DataFrame, current_month: str, attachment
     actual (timestamped) attachment filename, or None if there's nothing to
     attach — never hardcode the name here, it drifts from reality
     otherwise."""
-    lines = [f"CSR consolidation report — {current_month}", ""]
+    lines = [f"CSR consolidation report — {current_month} {current_year}", ""]
 
     total_quality = int(summary_table["Data quality"].sum())
     total_missing = int(summary_table["Missing values"].sum())
@@ -164,7 +178,8 @@ def _html_table(df: pd.DataFrame) -> str:
     return f'<table style="{_TABLE_STYLE}"><tr>{header_cells}</tr>{"".join(body_rows)}</table>'
 
 
-def build_email_html(summary_table: pd.DataFrame, current_month: str, attachment_name: str | None) -> str:
+def build_email_html(summary_table: pd.DataFrame, current_year: int, current_month: str,
+                      attachment_name: str | None) -> str:
     """The HTML version of the report sent as the email's actual body: a
     real, styled per-BU table instead of a plain-text dump. The row-by-row
     detail lives in the Excel attachment, not here — see
@@ -175,7 +190,7 @@ def build_email_html(summary_table: pd.DataFrame, current_month: str, attachment
     total_variations = int(summary_table["Large variations"].sum())
 
     parts = [f'<p style="font-family:Calibri,Arial,sans-serif;font-size:15px;">'
-             f'<b>CSR consolidation report — {current_month}</b></p>']
+             f'<b>CSR consolidation report — {current_month} {current_year}</b></p>']
 
     if not (total_quality or total_missing or total_variations):
         parts.append('<p style="font-family:Calibri,Arial,sans-serif;font-size:13px;">'
@@ -259,15 +274,20 @@ def send_report_email(subject: str, html_body: str, attachment_path=None) -> boo
 
 
 def run_and_send(raw: pd.DataFrame, consolidated: pd.DataFrame, reference: pd.DataFrame,
-                  current_month: str) -> str:
+                  current_year: int, current_month: str) -> str:
     """Builds the anomaly report from this run's data, prints the plain-text
     version to the console, writes the detail workbook (only if there's
     something to show), and emails the HTML version (a real table, see
     build_email_html) — the single entry point csr_calc_engine.py calls
-    after computing the consolidated result. Returns the plain-text body."""
+    after computing the consolidated result. Data quality notes and large
+    variations are reported across every year present in `raw`/`consolidated`
+    (a data quality flag from a prior year is still worth a look); missing
+    values are restricted to `current_year` (see find_missing_values — a
+    finished prior year is never flagged as still owing data). Returns the
+    plain-text body."""
     input_ids = set(reference[reference.Kind == "input"]["ID"])
     quality_notes = find_data_quality_notes(raw)
-    missing_values = find_missing_values(raw, input_ids, current_month)
+    missing_values = find_missing_values(raw, input_ids, current_year, current_month)
     large_variations = find_large_variations(consolidated)
 
     bus = sorted(raw["BU"].unique())
@@ -284,9 +304,9 @@ def run_and_send(raw: pd.DataFrame, consolidated: pd.DataFrame, reference: pd.Da
 
     attachment_name = attachment_path.name if attachment_path else None
 
-    body = build_email_body(summary_table, current_month, attachment_name)
+    body = build_email_body(summary_table, current_year, current_month, attachment_name)
     print("\n" + body)
 
-    html_body = build_email_html(summary_table, current_month, attachment_name)
-    send_report_email(f"CSR consolidation report — {current_month}", html_body, attachment_path)
+    html_body = build_email_html(summary_table, current_year, current_month, attachment_name)
+    send_report_email(f"CSR consolidation report — {current_month} {current_year}", html_body, attachment_path)
     return body

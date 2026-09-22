@@ -73,10 +73,10 @@ def test_write_then_load_existing_values_roundtrip(tmp_path, monkeypatch):
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
     gen.write_month_sheet(wb, "January", [_sample_record()], existing_at_write_time, is_current=True)
-    wb.save(tmp_path / "BU1_data_entry_CSR.xlsm")
+    wb.save(tmp_path / "BU1_data_entry_CSR_2026.xlsm")
 
-    empty_consolidated = pd.DataFrame(columns=["BU", "Month", "ID", "Value", "Comment", "Data quality note"])
-    reloaded = gen.load_existing_values("BU1", empty_consolidated)
+    empty_consolidated = pd.DataFrame(columns=["BU", "Year", "Month", "ID", "Value", "Comment", "Data quality note"])
+    reloaded = gen.load_existing_values("BU1", 2026, empty_consolidated)
 
     assert reloaded[("January", "Wat.1")] == (123.4, "hello")
 
@@ -91,12 +91,26 @@ def test_load_existing_values_prefers_data_entry_file_over_consolidated(tmp_path
     wb.remove(wb.active)
     gen.write_month_sheet(wb, "January", [_sample_record()], {("January", "Wat.1"): (999, "new")},
                            is_current=True)
-    wb.save(tmp_path / "BU1_data_entry_CSR.xlsm")
+    wb.save(tmp_path / "BU1_data_entry_CSR_2026.xlsm")
 
     consolidated = pd.DataFrame([
-        {"BU": "BU1", "Month": "January", "ID": "Wat.1", "Value": 1, "Comment": "old",
+        {"BU": "BU1", "Year": 2026, "Month": "January", "ID": "Wat.1", "Value": 1, "Comment": "old",
          "Data quality note": None},
     ])
-    reloaded = gen.load_existing_values("BU1", consolidated)
+    reloaded = gen.load_existing_values("BU1", 2026, consolidated)
 
     assert reloaded[("January", "Wat.1")] == (999, "new")
+
+
+def test_load_existing_values_ignores_other_years(tmp_path, monkeypatch):
+    # A prior year's value for the same (Month, ID) must never pre-fill this
+    # year's tab — see the function's docstring.
+    monkeypatch.setattr(config, "DATA_ENTRY_DIR", tmp_path)
+
+    consolidated = pd.DataFrame([
+        {"BU": "BU1", "Year": 2025, "Month": "January", "ID": "Wat.1", "Value": 42, "Comment": "last year",
+         "Data quality note": None},
+    ])
+    reloaded = gen.load_existing_values("BU1", 2026, consolidated)
+
+    assert ("January", "Wat.1") not in reloaded
