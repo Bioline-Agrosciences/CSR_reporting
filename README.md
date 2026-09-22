@@ -25,15 +25,25 @@ This project replaces that with:
   (totals, ratios) from the entered data — so a formula never needs to be
   copied into a spreadsheet cell by hand again.
 
+Not every indicator is owned by a CSR referent, though: Safety (accidents,
+hours worked) is owned by the H&S manager / HR, and is integrated
+separately, straight from the systems that already own it (BlueKanGo, the
+Working Hours file) — see below.
+
 ## The pipeline
 
-Two folders used by the pipeline are deliberately **not inside this
+Folders used by the pipeline are deliberately **not inside this
 project** — they live directly on the shared SharePoint drive instead (this
 whole project already sits inside the same synced library), so nothing
 ever needs to be copied in or sent out by hand:
 
 - `config.RAW_DATA_DIR` = `.../General/Monthly reporting/Archives/`
 - `config.DATA_ENTRY_DIR` = `.../General/Monthly reporting/`
+- `config.WORKING_HOURS_FILE` = `.../General/Working Hours 2026.xlsx` (the
+  year is currently hardcoded in the filename in `config.py` — update it by
+  hand when Bioline starts a new year's file)
+- `config.ACCIDENTS_DIR` = `.../General/Monthly reporting/extract_bluekango/`
+  (the folder the BlueKanGo accidents export lands in)
 
 ```
                       ONE-TIME HISTORICAL MIGRATION
@@ -49,7 +59,7 @@ ever needs to be copied in or sent out by hand:
            generate_data_entry_file.py
                       │
                       ▼
-     DATA_ENTRY_DIR/<BU>_data_entry_CSR.xlsm  ── written directly into the
+     DATA_ENTRY_DIR/<BU>_data_entry_CSR_<year>.xlsm  ── written directly into the
                                                    shared SharePoint folder
                                                    (General/Monthly reporting)
                                                    each CSR referent already
@@ -58,10 +68,14 @@ ever needs to be copied in or sent out by hand:
         (the referent fills in the current month's orange cells, in place)
                       │
                       ▼
-           integrate_data_entry.py
-                      │
-                      ▼
-        input_data/Raw_data_CSR.xlsx  (updated)
+           integrate_data_entry.py          WORKING_HOURS_FILE +
+                      │                      ACCIDENTS_DIR (BlueKanGo
+                      │                      export) — shared drive
+                      │                                │
+                      │                      integrate_safety_data.py
+                      │                                │
+                      ▼                                ▼
+        input_data/Raw_data_CSR.xlsx  ◄─────────────────┘  (updated)
                       │
                       ▼
              csr_calc_engine.py
@@ -75,6 +89,13 @@ to convert the old-format workbooks into the new format. After that, it is
 never run again — the monthly cycle on the right only ever touches the new
 format.
 
+Both `Raw_data_CSR.xlsx` and `Consolidated_results_CSR.xlsx` carry a "Year"
+column (added 22/09/2026) — every row is keyed by (BU, Year, Month,
+Indicator), not just (BU, Month), so the pipeline can keep running year
+after year without a new year's August silently overwriting the previous
+one's. This is also why the data entry file is one file PER YEAR (see step 1
+below) rather than a single file reused forever.
+
 ## Project layout
 
 | Folder / file | What it holds |
@@ -87,7 +108,8 @@ format.
 
 The original raw workbooks and the data entry files are **not** in this
 project — see `scripts/config.py` for `RAW_DATA_DIR` and `DATA_ENTRY_DIR`,
-both pointing directly at the shared SharePoint drive.
+both pointing directly at the shared SharePoint drive. Same for
+`WORKING_HOURS_FILE` and `ACCIDENTS_DIR`.
 
 ## Getting started
 
@@ -110,7 +132,9 @@ Then run any script with `uv run scripts/<name>.py`, from the project root.
    uv run scripts/generate_data_entry_file.py          # all 6 BUs
    uv run scripts/generate_data_entry_file.py BAF BFR   # just a couple of BUs
    ```
-   This writes `<BU>_data_entry_CSR.xlsm` directly into
+   This writes `<BU>_data_entry_CSR_<year>.xlsm` (one file PER YEAR — a new
+   one starts automatically the first time this is run in a new year,
+   nothing pre-filled from the year before) directly into
    `config.DATA_ENTRY_DIR` (General/Monthly reporting on the shared
    SharePoint drive) — referents already have access to it, nothing needs
    to be emailed or sent around.
@@ -130,11 +154,31 @@ Then run any script with `uv run scripts/<name>.py`, from the project root.
    uv run scripts/integrate_data_entry.py BAF       # just one BU
    ```
 
-4. **Recompute the consolidated results:**
+4. **Integrate Safety data** — independent of step 3 (different sources:
+   BlueKanGo + the Working Hours file, not the referent's data entry file),
+   order between the two doesn't matter, but both need to have run before
+   step 5:
+   ```
+   uv run scripts/integrate_safety_data.py
+   ```
+   Reads the Working Hours file (`config.WORKING_HOURS_FILE`) and the
+   latest BlueKanGo accidents export (`config.ACCIDENTS_DIR`), and updates
+   the same `input_data/Raw_data_CSR.xlsx` with Saf.1 (days without an
+   accident), Saf.2/Saf.3 (non-lost-time / lost-time injuries), Saf.4.2
+   (hours worked) and Saf.5 (days lost) — these Safety indicators are owned
+   by the H&S manager/HR, not the CSR referent, so they never go through
+   the data entry file from step 1-3.
+
+5. **Recompute the consolidated results:**
    ```
    uv run scripts/csr_calc_engine.py
    ```
-   Writes `output_data/Consolidated_results_CSR.xlsx`.
+   Writes `output_data/Consolidated_results_CSR.xlsx` (two tabs: "Results",
+   every indicator/BU/month, and "Completion", a BU x month % completion
+   matrix for the current year, scoped to the CSR-referent-owned
+   indicators — the same tracking each BU's own "Tracking" tab shows
+   individually, consolidated here across all 6 BUs in one place), and
+   emails the anomaly report (see below).
 
 ## The indicator reference list
 
@@ -146,6 +190,10 @@ what gets tracked. Each row is one indicator, with:
 - **Responsible**: who actually owns that number — usually "CSR referent",
   but some indicators belong to Finance, HR, or the H&S manager instead;
   those are entered elsewhere, not through this pipeline's data entry file.
+  Safety (Saf.*, owned by H&S manager/HR) is the one case this pipeline
+  handles too, via `integrate_safety_data.py` (see step 4 above) rather
+  than a data entry file. Sales (Env.1, owned by Finance, sourced from SAP)
+  is not — it's handled downstream, in Fabric/Power BI, not by this project.
 
 Add, edit, or remove a row here and every script picks it up automatically
 on its next run — nothing else to change.
@@ -185,3 +233,10 @@ uv run pytest
 
 Every push and pull request also runs the test suite automatically via
 GitHub Actions (see `.github/workflows/tests.yml`).
+
+## One-off utility scripts (not part of the monthly cycle)
+
+- `scripts/locate_safety_files.py` — searches your OneDrive for the Working
+  Hours file and the BlueKanGo export, to help fill in `WORKING_HOURS_FILE`
+  and `ACCIDENTS_DIR` in `config.py`. Run once, or again if either file
+  ever moves.

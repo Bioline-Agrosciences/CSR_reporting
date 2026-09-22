@@ -19,6 +19,7 @@ input_data/*
 !input_data/data_entry_template.xlsm
 output_data/
 reporting_csr_bu_collecte_automatisee.md
+CSR_referentiel_et_architecture_powerbi.md
 
 # Test cache
 .pytest_cache/

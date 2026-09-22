@@ -113,22 +113,23 @@ def load_data_entry_reference() -> pd.DataFrame:
 
 
 def load_consolidated() -> pd.DataFrame:
-    """input_data/Raw_data_CSR.xlsx — a single file, all BUs combined (see
-    extract_reference_and_data.py for the rationale)."""
+    """input_data/Raw_data_CSR.xlsx — a single file, all BUs AND all years
+    combined (see extract_reference_and_data.py for the rationale)."""
     path = config.INPUT_DIR / "Raw_data_CSR.xlsx"
     if not path.exists():
-        return pd.DataFrame(columns=["BU", "Month", "ID", "Value", "Comment", "Data quality note"])
+        return pd.DataFrame(columns=["BU", "Year", "Month", "ID", "Value", "Comment", "Data quality note"])
     return pd.read_excel(path, sheet_name="Raw_data")
 
 
-def load_existing_values(bu: str, consolidated: pd.DataFrame) -> dict:
-    """{(Month, ID): (Value, Comment)} already known for this BU, merged from
-    TWO sources:
+def load_existing_values(bu: str, year: int, consolidated: pd.DataFrame) -> dict:
+    """{(Month, ID): (Value, Comment)} already known for this BU, for THIS
+    YEAR ONLY, merged from TWO sources:
 
     1. input_data/Raw_data_CSR.xlsx — the latest entries already integrated
-       (via integrate_data_entry.py), filtered on this BU.
-    2. config.DATA_ENTRY_DIR/<BU>_data_entry_CSR.xlsm — the CURRENT data
-       entry file, if it already exists.
+       (via integrate_data_entry.py), filtered on this BU and this year (a
+       prior year's August must never pre-fill this year's August tab).
+    2. config.DATA_ENTRY_DIR/<BU>_data_entry_CSR_<year>.xlsm — the CURRENT
+       data entry file for this year, if it already exists.
 
     Without source 2, regenerating this file (e.g. because a new indicator
     was just added to the reference list) would overwrite anything a
@@ -140,10 +141,10 @@ def load_existing_values(bu: str, consolidated: pd.DataFrame) -> dict:
     """
     values: dict = {}
 
-    for row in consolidated[consolidated.BU == bu].itertuples():
+    for row in consolidated[(consolidated.BU == bu) & (consolidated.Year == year)].itertuples():
         values[(row.Month, row.ID)] = (row.Value, row.Comment)
 
-    entry_path = config.DATA_ENTRY_DIR / f"{bu}_data_entry_CSR.xlsm"
+    entry_path = config.DATA_ENTRY_DIR / f"{bu}_data_entry_CSR_{year}.xlsm"
     if entry_path.exists():
         wb = openpyxl.load_workbook(entry_path, data_only=True)
         value_col = len(DISPLAY_COLS) + 2
@@ -177,7 +178,7 @@ def compute_completion(entry_records: list, existing: dict) -> list:
     return completion
 
 
-def write_instructions_sheet(wb, bu: str):
+def write_instructions_sheet(wb, bu: str, year: int):
     """Creates the very first tab of the data entry file, "Instructions": a
     simple text explaining to the CSR referent how to fill in the file
     (which cells to change, what each tab is for, etc.). No calculation
@@ -185,7 +186,11 @@ def write_instructions_sheet(wb, bu: str):
     ws = wb.create_sheet("Instructions")
     ws.column_dimensions["A"].width = 100
     lines = [
-        f"Monthly CSR reporting — {bu}",
+        f"Monthly CSR reporting — {bu} — {year}",
+        "",
+        f"This file is for {year} only — a new one, with {year + 1} in its name, will be "
+        f"generated at the start of next year; this one stays as an archive, nothing is "
+        f"overwritten.",
         "",
         "How to fill in this file:",
         "- This file contains a macro: when you open it, Excel may show a security bar "
@@ -379,20 +384,24 @@ def write_annual_summary_sheet(wb, entry_records: list):
                                      objects=False, scenarios=False)
 
 
-def generate_for_bu(bu: str, data_entry_reference: pd.DataFrame, consolidated: pd.DataFrame):
+def generate_for_bu(bu: str, data_entry_reference: pd.DataFrame, consolidated: pd.DataFrame,
+                     year: int = None):
     """Builds and saves the complete data entry file for a BU
-    (config.DATA_ENTRY_DIR/<BU>_data_entry_CSR.xlsm): gathers already-known values,
-    determines the current month, then assembles all the tabs in order
-    (Instructions, Tracking, one tab per month, Annual summary) before
-    saving the file and printing a summary (indicator count, completion rate
-    for the current month).
+    (config.DATA_ENTRY_DIR/<BU>_data_entry_CSR_<year>.xlsm — one file PER
+    YEAR, added 22/09/2026 so a new year never collides with, or gets
+    confused for, an old one still open somewhere): gathers already-known
+    values for that year, determines the current month, then assembles all
+    the tabs in order (Instructions, Tracking, one tab per month, Annual
+    summary) before saving the file and printing a summary (indicator count,
+    completion rate for the current month).
 
     Built on top of TEMPLATE_PATH (keep_vba=True) rather than an empty
     workbook, so the macro (recoloring the current month's tab + recalculating
     "Tracking" on open) is always present in the file the referent opens,
     even if they never regenerate their file."""
+    year = year or date.today().year
     entry_records = data_entry_reference.to_dict("records")
-    existing = load_existing_values(bu, consolidated)
+    existing = load_existing_values(bu, year, consolidated)
     current_month = MONTHS[date.today().month - 1]
     completion = compute_completion(entry_records, existing)
 
@@ -400,13 +409,13 @@ def generate_for_bu(bu: str, data_entry_reference: pd.DataFrame, consolidated: p
     for sheet_name in list(wb.sheetnames):
         wb.remove(wb[sheet_name])
 
-    write_instructions_sheet(wb, bu)
+    write_instructions_sheet(wb, bu, year)
     write_tracking_sheet(wb, completion)
     for month in MONTHS:
         write_month_sheet(wb, month, entry_records, existing, is_current=(month == current_month))
     write_annual_summary_sheet(wb, entry_records)
 
-    out_path = config.DATA_ENTRY_DIR / f"{bu}_data_entry_CSR.xlsm"
+    out_path = config.DATA_ENTRY_DIR / f"{bu}_data_entry_CSR_{year}.xlsm"
     wb.save(out_path)
     _, filled_current, total = next(c for c in completion if c[0] == current_month)
     print(f"{bu}: {out_path.name} generated ({len(entry_records)} indicators to fill in; "
@@ -415,17 +424,21 @@ def generate_for_bu(bu: str, data_entry_reference: pd.DataFrame, consolidated: p
 
 def main():
     """Entry point: generates the monthly data entry file for one or more BUs
-    (all of them by default), from the indicator reference list and the
-    latest known data (already integrated + entries not yet integrated). Run
-    again every time an up-to-date file needs to be sent to the CSR
-    referents (e.g. after adding an indicator to the reference list, or at
-    the start of a new month)."""
+    (all of them by default), for the current year, from the indicator
+    reference list and the latest known data for that year (already
+    integrated + entries not yet integrated). Run again every time an
+    up-to-date file needs to be sent to the CSR referents (e.g. after adding
+    an indicator to the reference list, or at the start of a new month) — and
+    it naturally starts a fresh <BU>_data_entry_CSR_<year>.xlsm the first
+    time it's run in a new year, with nothing pre-filled from the year
+    before."""
     requested = sys.argv[1:] or list(config.RAW_FILES.keys())
+    year = date.today().year
     data_entry_reference = load_data_entry_reference()
     consolidated = load_consolidated()
     for bu in requested:
-        generate_for_bu(bu, data_entry_reference, consolidated)
-    print(f"\nFiles written to {config.DATA_ENTRY_DIR}/")
+        generate_for_bu(bu, data_entry_reference, consolidated, year=year)
+    print(f"\nFiles written to {config.DATA_ENTRY_DIR}/ (year {year})")
 
 
 if __name__ == "__main__":
