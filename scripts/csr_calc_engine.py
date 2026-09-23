@@ -23,10 +23,50 @@ executed (the FORMULAS dict below). Adding, changing, or removing a
 calculated indicator happens here and nowhere else — no more touching an
 Excel tab per month per BU.
 
-To add a new calculated indicator:
+ONLY ADDITIVE (sum) FORMULAS LIVE HERE — no ratios, no divisions (decision
+of 23/09/2026). This pipeline computes results at BU level AND rolls them
+up to group level (all 6 BUs together): a sum rolls up correctly (total
+energy for the group = sum of each BU's total energy), but a ratio does
+NOT — averaging or summing 6 BUs' "% renewable energy" or "frequency rate"
+produces a number that looks plausible but is mathematically meaningless
+(the classic "average of averages" mistake: it ignores each BU's weight/
+denominator). Ratio/intensity indicators — Wat.2, Ene.10, Ene.11, Was.3,
+Was.4, Saf.6, Saf.7 — are therefore NOT computed here. They still exist in
+the reference list (Kind="calculated", nobody types them in by hand), but
+whoever needs them recomputes them downstream, FROM THE RAW COMPONENTS,
+at whatever level of aggregation is actually meaningful (e.g. as Power BI
+DAX measures — see the architecture notes shared with Aurélie). Producing
+them here, at BU level only, would invite exactly the mistake this
+decision avoids: someone summing or averaging them later without
+realizing they can't be.
+
+Env.1 ("Sales") is entirely absent from this pipeline for the same
+family of reasons, plus a practical one: this pipeline (CSR referents +
+BlueKanGo + Working Hours) never has real sales/SAP figures to begin with.
+It is not read, not stored, not carried over from history — see
+extract_reference_and_data.py for where it's excluded at the source, and
+where a group-level Sales figure actually gets joined in (downstream, in
+Fabric, alongside the ratios above).
+
+A THIRD category, alongside FORMULAS (sums of already-entered values) and
+"not computed at all" (the ratios above): CONTEXTUAL_VALUES, for the 3
+indicators that were historically hand-typed every month (Ene.6.1, Ene.7.1,
+Saf.4.1) but are neither something a referent should have to enter NOR a
+sum of other entered values — they come from context that's already known
+without anyone entering anything (a physical constant, or a public-holiday
+calendar), see CONTEXTUAL_VALUES below for why this needs its own
+mechanism (a FORMULAS lambda has no idea which BU or month it's running
+for; these do, and that's exactly what they need).
+
+To add a new (additive) calculated indicator:
   1. Add a row to the reference list (ID, Topic, KPI, Unit, Kind="calculated", ...).
-  2. Add an entry to the FORMULAS dict below: "My.ID": lambda v: ...
+  2. Add an entry to the FORMULAS dict below: "My.ID": lambda v: ... — a
+     sum of z(v(...)) terms, never a division.
   That's it — it will be calculated for every BU and every month on the next run.
+
+To add a new contextual value (a constant or something derivable from
+BU/year/month alone, never from other entered values): add an entry to
+CONTEXTUAL_VALUES instead — "My.ID": lambda bu, year, month: ...
 
 Usage
 -----
@@ -40,10 +80,12 @@ only runs if raw_data/ still contains the 6 original files.
 Dependencies: pandas, openpyxl.
 """
 
+import calendar
 import sys
 from datetime import date
 from pathlib import Path
 
+import holidays as holidays_lib
 import pandas as pd
 
 # Robust import of config.py, whether this script is launched via
@@ -64,7 +106,11 @@ MONTH_ORDER = ["January", "February", "March", "April", "May", "June", "July",
 # recalculation — the engine corrects these cases, this is not a defect on
 # its part (see the verification report delivered with this prototype for
 # the detail of each case). Only used by validate_against_originals (a
-# one-off check).
+# one-off check). Only entries for IDs still in FORMULAS matter here (the
+# ratio indicators removed from FORMULAS on 23/09/2026 — Ene.10, Ene.11,
+# Was.3, Was.4, Saf.6, Saf.7 — had entries of their own; removed along with
+# them, since validate_against_originals can no longer compute those IDs to
+# compare in the first place).
 # Keys stay (BU, Month, ID) without a Year — validate_against_originals only
 # ever compares against HISTORICAL_VALIDATION_YEAR (2026), the one and only
 # year the original raw files covered, so a Year element here would be pure
@@ -72,14 +118,7 @@ MONTH_ORDER = ["January", "February", "March", "April", "May", "June", "July",
 KNOWN_CORRECTIONS = {
     ("Viridaxis", "June", "Ene.9"): "original Excel formula was broken (#REF!)",
     ("Viridaxis", "July", "Ene.9"): "original formula pointed to June (uncorrected copy-paste)",
-    ("Viridaxis", "July", "Ene.11"): "cascading consequence of the Ene.9 error above (Ene.11 = Ene.9 / Env.1)",
     ("BFR", "March", "Ene.9"): "cell replaced by a frozen value (formula lost) in the original file",
-    ("BFR", "March", "Ene.10"): "cell replaced by a frozen value (formula lost) in the original file",
-    ("BFR", "March", "Ene.11"): "cell replaced by a frozen value (formula lost) in the original file",
-    ("BFR", "March", "Was.3"): "cell replaced by a frozen value (formula lost) in the original file",
-    ("BFR", "March", "Was.4"): "cell replaced by a frozen value (formula lost) in the original file",
-    ("BFR", "March", "Saf.6"): "cell replaced by a frozen value (formula lost) in the original file",
-    ("BFR", "March", "Saf.7"): "cell replaced by a frozen value (formula lost) in the original file",
     ("Viridaxis", "July", "Ref.1"): "hand-entered value (0) inconsistent with Ref.2-9 (a 23kg leak not reflected in the total)",
     ("BUK", "June", "Ref.1"): "hand-entered value (0) inconsistent with Ref.2-9 (a 1.5kg leak not reflected in the total)",
 }
@@ -101,37 +140,58 @@ def z(x):
     return 0 if x is None or (isinstance(x, float) and pd.isna(x)) else x
 
 
-def _hours_worked(v):
-    """Hours worked and paid: Saf.4.2 if provided, otherwise a flat estimate
-    (Sales x working days x 8h) — reproduces exactly the original Excel
-    formula (=IF(J37="", J2*J36*8, J37))."""
-    saf42 = v("Saf.4.2")
-    if saf42 in (None, "") or (isinstance(saf42, float) and pd.isna(saf42)):
-        return z(v("Env.1")) * z(v("Saf.4.1")) * 8
-    return saf42
-
-
 FORMULAS = {
-    "Wat.2": lambda v: z(v("Wat.1")) / v("Env.1"),
     "Ene.9": lambda v: (z(v("Ene.1")) + z(v("Ene.2")) + z(v("Ene.3")) + z(v("Ene.4")) + z(v("Ene.5"))
                          + z(v("Ene.6")) * z(v("Ene.6.1"))
                          + z(v("Ene.7")) * z(v("Ene.7.1"))
                          + z(v("Ene.8")) * z(v("Ene.7.1"))),
-    "Ene.10": lambda v: (z(v("Ene.2")) + z(v("Ene.3")) + z(v("Ene.4"))) / v("Ene.9"),
-    "Ene.11": lambda v: v("Ene.9") / v("Env.1"),
     "Ref.1": lambda v: sum(z(v(f"Ref.{i}")) for i in range(2, 10)),
-    "Was.3": lambda v: z(v("Was.2")) / v("Was.1"),
-    "Was.4": lambda v: z(v("Was.1")) / v("Env.1"),
-    "Saf.6": lambda v: (z(v("Saf.2")) + z(v("Saf.3"))) / _hours_worked(v) * 1_000_000,
-    "Saf.7": lambda v: z(v("Saf.5")) / _hours_worked(v) * 1_000,
+}
+
+
+def working_days_in_month(country_code: str, year: int, month: int) -> int:
+    """Number of weekdays (Mon-Fri) in a given month that are NOT a public
+    holiday in `country_code` (ISO 3166-1 alpha-2, e.g. "FR", "KE") —
+    computed fresh from the `holidays` package's calendar every time, never
+    hand-typed or stored. This is Saf.4.1's new definition (23/09/2026): the
+    historical hand-entered values (see config.BU_COUNTRY) were essentially
+    identical across every BU regardless of country, which this replaces
+    with an actually country-aware count."""
+    country_holidays = holidays_lib.country_holidays(country_code, years=year)
+    _, days_in_month = calendar.monthrange(year, month)
+    return sum(
+        1 for day in range(1, days_in_month + 1)
+        if date(year, month, day).weekday() < 5 and date(year, month, day) not in country_holidays
+    )
+
+
+# Indicators computed from CONTEXT (which BU, which year/month) rather than
+# from other entered values (that's FORMULAS' job) or not computed here at
+# all (the ratios, see module docstring). Added 23/09/2026, replacing what
+# used to be 3 separate "input" indicators nobody was actually keeping
+# up to date every month (Ene.6.1, Ene.7.1: a physical constant that never
+# changes; Saf.4.1: a public-holiday calendar count, previously approximated
+# by hand and identically across every BU regardless of country). Injected
+# into each (BU, Year, Month) group's raw_values BEFORE compute_bu_month
+# runs (see run()) — so FORMULAS entries that already reference them (Ene.9
+# uses Ene.6.1/Ene.7.1) keep working unchanged, now resolving to these
+# instead of to a hand-typed value.
+CONTEXTUAL_VALUES = {
+    "Ene.6.1": lambda bu, year, month: config.LPG_CONVERSION_FACTOR[bu],
+    "Ene.7.1": lambda bu, year, month: config.FUEL_CONVERSION_FACTOR[bu],
+    # `month` arrives as a name ("January"), same as everywhere else in this
+    # pipeline — working_days_in_month needs the 1-12 number instead.
+    "Saf.4.1": lambda bu, year, month: working_days_in_month(
+        config.BU_COUNTRY[bu], year, MONTH_ORDER.index(month) + 1),
 }
 
 
 def compute_bu_month(raw_values: dict) -> dict:
     """Computes every "calculated" indicator (see FORMULAS) for ONE BU and
-    ONE month, from the entered values (raw_values). Some formulas depend on
-    the result of another calculated formula (e.g. Ene.11 needs Ene.9
-    already computed): the function therefore retries the formulas that
+    ONE month, from the entered values (raw_values). A formula can depend on
+    the result of another calculated formula (none currently do, now that
+    FORMULAS only holds sums — but the retry loop stays generic in case a
+    future addition ever needs it): the function retries the formulas that
     failed, until every one that can be computed has been — the ones that
     truly cannot, for lack of input data, are simply left out of the result
     rather than crashing the script."""
@@ -201,13 +261,16 @@ def run(reference: pd.DataFrame, raw: pd.DataFrame) -> pd.DataFrame:
     the raw data, computes every "calculated" indicator from the entered
     values (via compute_bu_month — formulas never mix values from two
     different years, since the grouping is per (BU, Year, Month)), then
-    gathers everything — entered AND calculated — into a single consolidated
-    table, sorted by BU / year / month / indicator. This is the table that
-    main() then writes to output_data/Consolidated_results_CSR.xlsx."""
+    gathers everything — entered, calculated, AND contextual (see
+    CONTEXTUAL_VALUES) — into a single consolidated table, sorted by BU /
+    year / month / indicator. This is the table that main() then writes to
+    output_data/Consolidated_results_CSR.xlsx."""
     meta = reference.set_index("ID")[["Topic", "KPI", "Unit", "Kind"]]
     results = []
     for (bu, year, month), grp in raw.groupby(["BU", "Year", "Month"], sort=False):
         raw_values = dict(zip(grp["ID"], grp["Value"]))
+        for kpi_id, contextual_fn in CONTEXTUAL_VALUES.items():
+            raw_values[kpi_id] = contextual_fn(bu, year, month)
         computed = compute_bu_month(raw_values)
         for kpi_id, value in computed.items():
             if kpi_id not in meta.index:

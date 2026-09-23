@@ -31,6 +31,28 @@ hand matched exactly the sum of Ref.2 to Ref.9 — it is therefore reclassified
 here as "calculated" = SUM(Ref.2..Ref.9), which also fills in several cases
 where the total had been left empty despite real leaks recorded in detail.
 
+Env.1 ("Sales") and Saf.4 ("FTE" / headcount) are EXCLUDED entirely
+(decisions of 23/09/2026, see EXCLUDED_IDS below) — this pipeline never has
+real sales/SAP figures to begin with (Env.1), and FTE is simply no longer
+tracked or used anywhere in this pipeline (Saf.4). The reference list this
+script produces is therefore 37 indicators, not 39.
+
+CALC_IDS carries TWO kinds of exception on top of the 9 original
+CSO-formula rows:
+  - Ref.1 (see above): never had a formula in the original files, hand-
+    verified to equal SUM(Ref.2..Ref.9), reclassified "calculated" so a
+    referent never re-types a total the pipeline can derive itself.
+  - Ene.6.1, Ene.7.1, Saf.4.1 (decision of 23/09/2026): these WERE hand-
+    typed "input" rows in the original files, but none of them is actually
+    something anyone should be measuring or re-typing every month — Ene.6.1
+    /Ene.7.1 are physical conversion constants (kWh per kg of LPG / per
+    liter of fuel), Saf.4.1 is a public-holiday-aware working-days count
+    that a calendar can derive on its own. All 3 are reclassified
+    "calculated" and computed fresh every run by
+    csr_calc_engine.py's CONTEXTUAL_VALUES (see that module — a different
+    mechanism from FORMULAS, since these come from BU/year/month context,
+    not from other entered values).
+
 How the raw data was cleaned
 -------------------------------
 Loaded with data_only=True (openpyxl) to get a cell's already-computed value,
@@ -92,8 +114,25 @@ MONTHS = ["January", "February", "March", "April", "May", "June", "July",
 HISTORICAL_YEAR = 2026
 
 # The 9 rows whose "Monthly value" is a calculation formula (Responsible=CSO)
-# in the original files, PLUS Ref.1 (see docstring above).
-CALC_IDS = {"Wat.2", "Ene.9", "Ene.10", "Ene.11", "Ref.1", "Was.3", "Was.4", "Saf.6", "Saf.7"}
+# in the original files, PLUS Ref.1, Ene.6.1, Ene.7.1, Saf.4.1 (see docstring
+# above for why each of these last 4 is an exception, and of a different
+# kind). Not just historical anymore, unlike the note that used to be here —
+# Ene.6.1/Ene.7.1/Saf.4.1's reclassification IS a "stop treating this as
+# input" decision, same spirit as Ref.1's.
+CALC_IDS = {"Wat.2", "Ene.9", "Ene.10", "Ene.11", "Ref.1", "Was.3", "Was.4", "Saf.6", "Saf.7",
+            "Ene.6.1", "Ene.7.1", "Saf.4.1"}
+
+# Indicators this pipeline never tracks at all (decisions of 23/09/2026) —
+# skipped entirely in build_reference(), so they never reach
+# Indicator_reference_CSR.xlsx and, as a direct consequence, never reach
+# Raw_data_CSR.xlsx either (build_raw_long only extracts IDs that made it
+# into the reference list as entry_ids).
+#   - Env.1 ("Sales"): this pipeline (CSR referents + BlueKanGo + Working
+#     Hours) has no real sales/SAP figures — that figure is joined
+#     downstream, in Fabric, where the real numbers live.
+#   - Saf.4 ("FTE" / headcount): no longer tracked or used anywhere in this
+#     pipeline — nothing computes or consumes it.
+EXCLUDED_IDS = {"Env.1", "Saf.4"}
 
 FORMULA_DESC = {
     "Wat.2": "Wat.1 / Env.1",
@@ -105,6 +144,14 @@ FORMULA_DESC = {
     "Was.4": "Was.1 / Env.1",
     "Saf.6": "(Saf.2+Saf.3) / (Saf.4.2 if provided, otherwise Env.1*Saf.4.1*8) * 1,000,000",
     "Saf.7": "Saf.5 / (Saf.4.2 if provided, otherwise Env.1*Saf.4.1*8) * 1,000",
+    # NOTE — Wat.2, Ene.10, Ene.11, Was.3, Was.4, Saf.6, Saf.7: documentation
+    # of the ORIGINAL Excel formula only. csr_calc_engine.py no longer
+    # executes these (23/09/2026, ratios can't be summed to a group total) —
+    # they're computed downstream instead, from the same raw components.
+    "Ene.6.1": "Constant: config.LPG_CONVERSION_FACTOR[BU] (kWh per kg of LPG)",
+    "Ene.7.1": "Constant: config.FUEL_CONVERSION_FACTOR[BU] (kWh per liter of fuel)",
+    "Saf.4.1": "Working days in the month, public holidays excluded, per config.BU_COUNTRY[BU] "
+               "(see csr_calc_engine.working_days_in_month)",
 }
 REFERENCE_NOTES = {
     "Ref.1": ("Corrected: never actually calculated in the original files (the cell was empty "
@@ -162,14 +209,16 @@ def build_reference() -> pd.DataFrame:
     February — see REFERENCE_BU/REFERENCE_MONTH). For each indicator, records
     whether it is to be filled in by a referent ("input") or calculated
     automatically ("calculated"), and for calculated indicators, records the
-    formula in plain language (see FORMULA_DESC). The result is then written
-    to Indicator_reference_CSR.xlsx by export_reference."""
+    formula in plain language (see FORMULA_DESC). IDs in EXCLUDED_IDS (Env.1,
+    Saf.4) are skipped entirely — never written to the reference list at
+    all. The result is then written to Indicator_reference_CSR.xlsx by
+    export_reference."""
     wb_ref = openpyxl.load_workbook(_raw_path(REFERENCE_BU), data_only=False)
     ws_ref = wb_ref[REFERENCE_MONTH]
     rows = []
     for r in range(2, ws_ref.max_row + 1):
         idv = ws_ref.cell(row=r, column=2).value
-        if not idv:
+        if not idv or idv in EXCLUDED_IDS:
             continue
         is_calc = idv in CALC_IDS
         rows.append({

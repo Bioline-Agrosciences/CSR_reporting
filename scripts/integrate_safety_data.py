@@ -12,8 +12,11 @@ file generate_data_entry_file.py produces. They come from two other systems:
   - config.WORKING_HOURS_FILE  -> Saf.4.2 "Working hours of the month"
     One fixed file, wide format (1 row per BU, 1 column per month), updated
     in place. A blank cell means the month hasn't been declared yet (left
-    out here, not defaulted to 0 or 0 hours — csr_calc_engine.py already
-    knows how to estimate a fallback from FTE if Saf.4.2 is truly missing).
+    out here, not defaulted to 0 or 0 hours). No fallback exists anymore if
+    Saf.4.2 is missing (there used to be one, based on Env.1/FTE — both
+    gone from this pipeline as of 23/09/2026, see csr_calc_engine.py):
+    Saf.6/Saf.7 simply can't be computed downstream for a month with no
+    Saf.4.2, same as any other missing raw component.
 
   - config.ACCIDENTS_DIR / config.ACCIDENTS_FILE_PATTERN -> the BlueKanGo
     accidents export, one row per accident/incident. Picks the most recently
@@ -44,17 +47,23 @@ file generate_data_entry_file.py produces. They come from two other systems:
     by the working hours file (our proxy for "this month is active for
     reporting") — "no accident" is a real, reportable value, not missing data.
 
-Once these rows are in Raw_data_CSR.xlsx, csr_calc_engine.py computes Saf.6
-(Frequency rate) and Saf.7 (Gravity rate) automatically — its FORMULAS dict
-already expects exactly these IDs, nothing to change there.
+Once these rows are in Raw_data_CSR.xlsx, Saf.4.2/Saf.2/Saf.3/Saf.5 are
+available for Saf.6 (Frequency rate) and Saf.7 (Gravity rate) to be
+computed downstream (Power BI/Fabric) — NOT by csr_calc_engine.py: as of
+23/09/2026 that script only computes additive (sum) indicators, never
+ratios, because a ratio can't be validly rolled up to a group total the
+way a sum can (see its module docstring). Saf.6/Saf.7 are still classified
+"calculated" in the reference list, just no longer produced by that
+script's FORMULAS dict.
 
 NOT handled here (deliberately out of scope, see the analysis shared with
 Aurélie):
-  - Env.1 "Sales" (SAP) — the Sales/SAP crossing happens downstream, in
-    Fabric/Power BI, not in this local pipeline. Wat.2, Ene.11 and Was.4
-    (which divide by Env.1) will keep using whatever Env.1 value already
-    sits in Raw_data_CSR.xlsx (likely stale/blank for recent months) until
-    that Fabric-side join exists.
+  - Env.1 "Sales" (SAP) — this pipeline has no real sales/SAP figures at
+    all; Env.1 is excluded from the reference list and from
+    Raw_data_CSR.xlsx entirely (see extract_reference_and_data.py's
+    EXCLUDED_IDS). The Sales/SAP join happens downstream, in Fabric.
+  - Wat.2, Ene.10, Ene.11, Was.3, Was.4 (ratios, same reasoning as Saf.6/
+    Saf.7 above) — also computed downstream, not here.
 
 Usage
 -----
