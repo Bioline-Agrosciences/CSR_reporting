@@ -17,22 +17,7 @@ def test_z_treats_none_and_nan_as_zero():
     assert engine.z(0) == 0
 
 
-def test_hours_worked_uses_saf42_when_present():
-    v = lambda i: {"Saf.4.2": 500}[i]
-    assert engine._hours_worked(v) == 500
-
-
-def test_hours_worked_falls_back_to_default_formula_when_saf42_missing_value():
-    # Reproduces =IF(Saf.4.2="", Env.1*Saf.4.1*8, Saf.4.2): Saf.4.2 empty (None).
-    d = {"Saf.4.2": None, "Env.1": 10, "Saf.4.1": 2}
-    v = lambda i: d[i]
-    assert engine._hours_worked(v) == 10 * 2 * 8
-
-
 @pytest.mark.parametrize("kpi_id,values,expected", [
-    ("Wat.2", {"Wat.1": 100, "Env.1": 50}, 2.0),
-    ("Was.3", {"Was.2": 20, "Was.1": 200}, 0.1),
-    ("Was.4", {"Was.1": 30, "Env.1": 60}, 0.5),
     ("Ref.1", {f"Ref.{i}": i for i in range(2, 10)}, sum(range(2, 10))),
     # A detail row left blank (None, not absent from the dict) counts as 0
     # (like SUM() in Excel), not an error.
@@ -41,6 +26,13 @@ def test_hours_worked_falls_back_to_default_formula_when_saf42_missing_value():
 def test_formula_matches_expected_value(kpi_id, values, expected):
     v = lambda i: values[i]
     assert engine.FORMULAS[kpi_id](v) == pytest.approx(expected)
+
+
+def test_formulas_only_contains_additive_indicators():
+    # 23/09/2026 decision: no ratios/divisions here (can't be summed to a
+    # group total), and no Env.1 (never available to this pipeline). If this
+    # ever fails, someone added a division back — see the module docstring.
+    assert set(engine.FORMULAS) == {"Ene.9", "Ref.1"}
 
 
 def test_ene9_combines_direct_and_weighted_sources():
@@ -54,63 +46,56 @@ def test_ene9_combines_direct_and_weighted_sources():
     assert engine.FORMULAS["Ene.9"](v) == pytest.approx(10 + 20 + 6 + 20 + 5)
 
 
-def test_saf6_and_saf7_use_hours_worked_denominator():
-    values = {"Saf.2": 1, "Saf.3": 1, "Saf.5": 2, "Saf.4.2": 1000}
-    v = lambda i: values[i]
-    assert engine.FORMULAS["Saf.6"](v) == pytest.approx((1 + 1) / 1000 * 1_000_000)
-    assert engine.FORMULAS["Saf.7"](v) == pytest.approx(2 / 1000 * 1_000)
-
-
-def test_compute_bu_month_resolves_dependencies_regardless_of_order():
-    # Ene.10/Ene.11 depend on the result of Ene.9, computed in the same pass.
+def test_compute_bu_month_computes_both_sums_independently():
     raw = {
         "Ene.1": 100, "Ene.2": 10, "Ene.3": 10, "Ene.4": 10, "Ene.5": 0,
         "Ene.6": 0, "Ene.6.1": 0, "Ene.7": 0, "Ene.7.1": 0, "Ene.8": 0,
-        "Env.1": 50, "Wat.1": 25,
-        "Was.1": 40, "Was.2": 4,
-        "Saf.2": 1, "Saf.3": 1, "Saf.5": 2, "Saf.4.2": 1000,
         "Ref.2": 1, "Ref.3": 1, "Ref.4": 0, "Ref.5": 0, "Ref.6": 0,
         "Ref.7": 0, "Ref.8": 0, "Ref.9": 0,
     }
     result = engine.compute_bu_month(raw)
 
     assert result["Ene.9"] == pytest.approx(130)
-    assert result["Ene.10"] == pytest.approx((10 + 10 + 10) / 130)
-    assert result["Ene.11"] == pytest.approx(130 / 50)
-    assert result["Wat.2"] == pytest.approx(25 / 50)
     assert result["Ref.1"] == pytest.approx(2)
     # Original entries stay unchanged in the result.
     assert result["Ene.1"] == 100
 
 
 def test_compute_bu_month_leaves_indicator_absent_when_input_missing():
-    # No data for Wat.1/Env.1: Wat.2 must stay absent, not crash, not put in
-    # a bogus value.
-    raw = {"Ene.1": 5}
+    # Ene.9 needs Ene.1..Ene.8: missing entirely (not just empty) makes the
+    # whole sum fail rather than silently treat it as 0 — must stay absent,
+    # not crash, not put in a bogus value.
+    raw = {"Ref.2": 5}
     result = engine.compute_bu_month(raw)
-    assert "Wat.2" not in result
-    assert result["Ene.1"] == 5
+    assert "Ene.9" not in result
+    assert result["Ref.2"] == 5
+
+
+def _ref_rows(bu, year, month, ref2_value):
+    """A full Ref.2..Ref.9 set of raw rows (Ref.1 needs every one of them
+    present, even at 0, to compute at all — see compute_bu_month: a
+    reference entirely missing from raw_values fails the whole sum, it's
+    not the same as an empty/0 value)."""
+    return [{"BU": bu, "Year": year, "Month": month, "ID": f"Ref.{i}",
+              "Value": ref2_value if i == 2 else 0.0} for i in range(2, 10)]
 
 
 def test_run_merges_computed_and_input_values_with_reference_metadata():
     reference = pd.DataFrame([
-        {"ID": "Wat.1", "Topic": "Water", "KPI": "Water consumption", "Unit": "m3", "Kind": "input"},
-        {"ID": "Env.1", "Topic": "General info", "KPI": "Sales", "Unit": "kEUR", "Kind": "input"},
-        {"ID": "Wat.2", "Topic": "Water", "KPI": "Water intensity", "Unit": "m3/kEUR", "Kind": "calculated"},
+        {"ID": "Ref.2", "Topic": "Refrigerants", "KPI": "R449A leak", "Unit": "Kg", "Kind": "input"},
+        {"ID": "Ref.1", "Topic": "Refrigerants", "KPI": "Total refrigerants leaks", "Unit": "Kg",
+         "Kind": "calculated"},
     ])
-    raw = pd.DataFrame([
-        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Wat.1", "Value": 100.0},
-        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Env.1", "Value": 50.0},
-    ])
+    raw = pd.DataFrame(_ref_rows("BAF", 2026, "January", 3.0))
 
     out = engine.run(reference, raw)
 
-    wat2 = out[out.ID == "Wat.2"].iloc[0]
-    assert wat2["Value"] == pytest.approx(2.0)
-    assert wat2["Kind"] == "calculated"
-    assert wat2["Topic"] == "Water"
-    assert wat2["Year"] == 2026
-    assert set(out.ID) == {"Wat.1", "Env.1", "Wat.2"}
+    ref1 = out[out.ID == "Ref.1"].iloc[0]
+    assert ref1["Value"] == pytest.approx(3.0)
+    assert ref1["Kind"] == "calculated"
+    assert ref1["Topic"] == "Refrigerants"
+    assert ref1["Year"] == 2026
+    assert set(out.ID) == {"Ref.2", "Ref.1"}
 
 
 def test_run_keeps_two_years_separate():
@@ -118,37 +103,32 @@ def test_run_keeps_two_years_separate():
     # into one row — a year boundary is a hard partition, not just another
     # grouping key.
     reference = pd.DataFrame([
-        {"ID": "Wat.1", "Topic": "Water", "KPI": "Water consumption", "Unit": "m3", "Kind": "input"},
-        {"ID": "Env.1", "Topic": "General info", "KPI": "Sales", "Unit": "kEUR", "Kind": "input"},
-        {"ID": "Wat.2", "Topic": "Water", "KPI": "Water intensity", "Unit": "m3/kEUR", "Kind": "calculated"},
+        {"ID": "Ref.2", "Topic": "Refrigerants", "KPI": "R449A leak", "Unit": "Kg", "Kind": "input"},
+        {"ID": "Ref.1", "Topic": "Refrigerants", "KPI": "Total refrigerants leaks", "Unit": "Kg",
+         "Kind": "calculated"},
     ])
-    raw = pd.DataFrame([
-        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Wat.1", "Value": 100.0},
-        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Env.1", "Value": 50.0},
-        {"BU": "BAF", "Year": 2027, "Month": "January", "ID": "Wat.1", "Value": 200.0},
-        {"BU": "BAF", "Year": 2027, "Month": "January", "ID": "Env.1", "Value": 50.0},
-    ])
+    raw = pd.DataFrame(_ref_rows("BAF", 2026, "January", 3.0) + _ref_rows("BAF", 2027, "January", 7.0))
 
     out = engine.run(reference, raw)
 
-    wat2_by_year = out[out.ID == "Wat.2"].set_index("Year")["Value"]
-    assert wat2_by_year[2026] == pytest.approx(2.0)
-    assert wat2_by_year[2027] == pytest.approx(4.0)
+    ref1_by_year = out[out.ID == "Ref.1"].set_index("Year")["Value"]
+    assert ref1_by_year[2026] == pytest.approx(3.0)
+    assert ref1_by_year[2027] == pytest.approx(7.0)
 
 
 def test_run_ignores_computed_id_absent_from_reference():
-    # Wat.2 is computable (Wat.1 and Env.1 are entered) but deliberately
-    # absent from the reference list (indicator removed): run() must not
-    # crash, just silently skip it, along with Env.1 likewise absent.
+    # Ref.1 is computable (every Ref.2..Ref.9 is entered, even if 0) but
+    # deliberately absent from the reference list (indicator removed):
+    # run() must not crash, just silently skip it.
     reference = pd.DataFrame([
-        {"ID": "Wat.1", "Topic": "Water", "KPI": "Water consumption", "Unit": "m3", "Kind": "input"},
+        {"ID": "Ref.2", "Topic": "Refrigerants", "KPI": "R449A leak", "Unit": "Kg", "Kind": "input"},
     ])
-    raw = pd.DataFrame([
-        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Wat.1", "Value": 100.0},
-        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Env.1", "Value": 50.0},
-    ])
+    raw = pd.DataFrame(
+        [{"BU": "BAF", "Year": 2026, "Month": "January", "ID": f"Ref.{i}",
+          "Value": 3.0 if i == 2 else 0.0} for i in range(2, 10)]
+    )
     out = engine.run(reference, raw)
-    assert list(out.ID) == ["Wat.1"]
+    assert list(out.ID) == ["Ref.2"]
 
 
 # ---------------------------------------------------------------------------
@@ -161,14 +141,14 @@ def test_build_completion_table_only_counts_csr_referent_owned_indicators():
     reference = pd.DataFrame([
         {"ID": "Wat.1", "Kind": "input", "Responsible": "CSR referent"},
         {"ID": "Ene.1", "Kind": "input", "Responsible": "CSR referent"},
-        {"ID": "Env.1", "Kind": "input", "Responsible": "Finance - Nikola Terzic"},  # excluded
+        {"ID": "Fin.1", "Kind": "input", "Responsible": "Finance - Nikola Terzic"},  # excluded
         {"ID": "Saf.1", "Kind": "input", "Responsible": "H&S manager"},              # excluded
         {"ID": "Wat.2", "Kind": "calculated", "Responsible": "CSR referent"},        # excluded: calculated
     ])
     raw = pd.DataFrame([
         {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Wat.1", "Value": 100.0},
         # Ene.1 not filled for BAF/January -> should count as missing (1/2 = 50%).
-        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Env.1", "Value": 999.0},  # Finance-owned, ignored
+        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Fin.1", "Value": 999.0},  # Finance-owned, ignored
         {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Saf.1", "Value": 999.0},  # H&S-owned, ignored
     ])
 
@@ -259,9 +239,9 @@ def test_validate_skips_silently_when_raw_files_are_absent(capsys, single_bu):
 
 
 def test_validate_reports_no_mismatch_when_recalculation_agrees(capsys, single_bu):
-    _write_fixture_workbook(single_bu, {"February": {"Wat.2": 2.0}})
+    _write_fixture_workbook(single_bu, {"February": {"Ene.9": 2.0}})
     consolidated = pd.DataFrame([
-        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "February", "ID": "Wat.2", "Value": 2.0},
+        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "February", "ID": "Ene.9", "Value": 2.0},
     ])
     engine.validate_against_originals(consolidated)
     out = capsys.readouterr().out
@@ -270,9 +250,9 @@ def test_validate_reports_no_mismatch_when_recalculation_agrees(capsys, single_b
 
 
 def test_validate_flags_an_undocumented_discrepancy(capsys, single_bu):
-    _write_fixture_workbook(single_bu, {"February": {"Wat.2": 99.0}})
+    _write_fixture_workbook(single_bu, {"February": {"Ene.9": 99.0}})
     consolidated = pd.DataFrame([
-        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "February", "ID": "Wat.2", "Value": 2.0},
+        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "February", "ID": "Ene.9", "Value": 2.0},
     ])
     engine.validate_against_originals(consolidated)
     out = capsys.readouterr().out
@@ -287,12 +267,12 @@ def test_validate_reports_a_known_correction_separately_from_real_mismatches(
     # expected correction (KNOWN_CORRECTIONS) — it must be counted on its
     # own line, not raised as an unexplained mismatch.
     monkeypatch.setitem(
-        engine.KNOWN_CORRECTIONS, ("TestBU", "February", "Wat.2"),
+        engine.KNOWN_CORRECTIONS, ("TestBU", "February", "Ene.9"),
         "test fixture: documented discrepancy",
     )
-    _write_fixture_workbook(single_bu, {"February": {"Wat.2": 99.0}})
+    _write_fixture_workbook(single_bu, {"February": {"Ene.9": 99.0}})
     consolidated = pd.DataFrame([
-        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "February", "ID": "Wat.2", "Value": 2.0},
+        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "February", "ID": "Ene.9", "Value": 2.0},
     ])
     engine.validate_against_originals(consolidated)
     out = capsys.readouterr().out
@@ -305,12 +285,12 @@ def test_validate_never_compares_the_january_sheet(capsys, single_bu):
     # a January sheet exists with a wildly different value, it must be
     # skipped rather than reported as a mismatch.
     _write_fixture_workbook(single_bu, {
-        "February": {"Wat.2": 2.0},
-        "January": {"Wat.2": 999.0},
+        "February": {"Ene.9": 2.0},
+        "January": {"Ene.9": 999.0},
     })
     consolidated = pd.DataFrame([
-        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "February", "ID": "Wat.2", "Value": 2.0},
-        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "January", "ID": "Wat.2", "Value": 2.0},
+        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "February", "ID": "Ene.9", "Value": 2.0},
+        {"BU": "TestBU", "Year": engine.HISTORICAL_VALIDATION_YEAR, "Month": "January", "ID": "Ene.9", "Value": 2.0},
     ])
     engine.validate_against_originals(consolidated)
     out = capsys.readouterr().out
@@ -334,7 +314,7 @@ def test_validate_skips_when_no_recalculated_value_exists_for_that_id_month(caps
     # The original file has the ID/month, but the recalculation has nothing
     # for it (e.g. missing raw input): skip rather than crash on an empty
     # mine_series.
-    _write_fixture_workbook(single_bu, {"February": {"Wat.2": 2.0}})
+    _write_fixture_workbook(single_bu, {"February": {"Ene.9": 2.0}})
     consolidated = pd.DataFrame(columns=["BU", "Year", "Month", "ID", "Value"])
     engine.validate_against_originals(consolidated)
     out = capsys.readouterr().out

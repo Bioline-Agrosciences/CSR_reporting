@@ -7,17 +7,28 @@
 # csr_calc_engine.py. Conversion Spark -> pandas juste après la lecture
 # (.toPandas()), et pandas -> Spark juste avant l'écriture finale.
 #
-# IMPORTANT — quels ratios ont vraiment besoin d'être recalculés ici :
-# Saf.6 et Saf.7 n'ont PAS besoin d'Env.1 : depuis que Working_Hours_2026.xlsx
-# alimente Saf.4.2 (heures travaillées réelles) via le pipeline Python, le
-# fallback de csr_calc_engine.py (Env.1 x Saf.4.1 x 8) ne s'active plus —
-# Saf.6/Saf.7 sortent déjà corrects de CSR_indicators_report.
-# Seuls 3 ratios dépendent encore directement d'Env.1 et doivent être
-# recalculés ici avec les vraies ventes SAP :
-#   Wat.2  = Wat.1 / Env.1
-#   Ene.11 = Ene.9 / Env.1
-#   Was.4  = Was.1 / Env.1
-# (formules copiées telles quelles depuis scripts/csr_calc_engine.py.)
+# IMPORTANT — quels ratios ont vraiment besoin d'être recalculés ici
+# (mis à jour 23/09/2026 — le périmètre a changé, relire même si tu connais
+# la version précédente de ce commentaire) :
+# Décision d'Aurélie : scripts/csr_calc_engine.py ne calcule plus AUCUN
+# ratio/division, seulement des sommes — un ratio par BU ne peut pas être
+# sommé/moyenné pour obtenir un total groupe valide (contrairement à une
+# somme), donc CSR_indicators_report ne contient plus AUCUN des 7 ratios
+# suivants (avant le 23/09, seuls Wat.2/Ene.11/Was.4 en étaient absents,
+# faute d'Env.1 ; Ene.10/Was.3/Saf.6/Saf.7 arrivaient déjà calculés). Les 7
+# doivent maintenant être recalculés ici, à partir des composantes brutes
+# déjà dans CSR_indicators_report (+ Env.1 pour les 3 qui en dépendent) :
+#   Wat.2  = Wat.1 / Env.1                          (a besoin d'Env.1/SAP)
+#   Ene.10 = (Ene.2 + Ene.3 + Ene.4) / Ene.9
+#   Ene.11 = Ene.9 / Env.1                          (a besoin d'Env.1/SAP)
+#   Was.3  = Was.2 / Was.1
+#   Was.4  = Was.1 / Env.1                          (a besoin d'Env.1/SAP)
+#   Saf.6  = (Saf.2 + Saf.3) / Saf.4.2 * 1 000 000
+#   Saf.7  = Saf.5 / Saf.4.2 * 1 000
+# (formules copiées telles quelles depuis l'ancien scripts/csr_calc_engine.py,
+# avant qu'il ne soit restreint aux sommes — Saf.6/Saf.7 n'ont plus besoin du
+# fallback Env.1×Saf.4.1×8 : Saf.4.2 est désormais toujours renseigné, réel,
+# via Working_Hours_2026.xlsx côté pipeline Python.)
 #
 # IMPORTANT — l'année (22/09/2026) : Raw_data_CSR.xlsx / Consolidated_results_CSR.xlsx
 # côté pipeline Python portent désormais une colonne "Year" (BU+Année+Mois+ID,
@@ -61,7 +72,8 @@ df_sales_monthly = (
 
 # --------------------------------------------------------------------------
 # Cell 3 — pivot des indicateurs en large, jointure des vraies ventes,
-# recalcul des 3 ratios (par BU/Année/Mois, jamais mélangé entre années)
+# recalcul des 7 ratios (par BU/Année/Mois, jamais mélangé entre années,
+# jamais sommé/moyenné entre BU — voir le commentaire en tête de fichier)
 # --------------------------------------------------------------------------
 df_wide = (
     df_indicators
@@ -70,16 +82,23 @@ df_wide = (
 )
 df_wide.columns.name = None
 
-# On retire l'Env.1 utilisé par la pipeline Python et on le remplace par le
-# vrai chiffre SAP, année par année.
+# CSR_indicators_report ne contient plus Env.1 du tout (exclu côté pipeline
+# Python, voir extract_reference_and_data.py) — on l'ajoute ici pour la
+# première fois, depuis le vrai chiffre SAP, année par année. errors="ignore"
+# reste défensif si jamais un refresh plus ancien du dataflow en portait
+# encore un résidu.
 df_wide = (
     df_wide.drop(columns=["Env.1"], errors="ignore")
     .merge(df_sales_monthly, on=["BU", "Year", "Month"], how="left")
 )
 
 df_wide["Wat.2"] = df_wide["Wat.1"] / df_wide["Env.1"]
+df_wide["Ene.10"] = (df_wide["Ene.2"] + df_wide["Ene.3"] + df_wide["Ene.4"]) / df_wide["Ene.9"]
 df_wide["Ene.11"] = df_wide["Ene.9"] / df_wide["Env.1"]
+df_wide["Was.3"] = df_wide["Was.2"] / df_wide["Was.1"]
 df_wide["Was.4"] = df_wide["Was.1"] / df_wide["Env.1"]
+df_wide["Saf.6"] = (df_wide["Saf.2"] + df_wide["Saf.3"]) / df_wide["Saf.4.2"] * 1_000_000
+df_wide["Saf.7"] = df_wide["Saf.5"] / df_wide["Saf.4.2"] * 1_000
 
 # --------------------------------------------------------------------------
 # Cell 4 — repasser en format long (une ligne par BU/Year/Month/ID/Value,

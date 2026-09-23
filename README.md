@@ -21,14 +21,30 @@ This project replaces that with:
 - **One clean, small file per BU per month** for the referent to fill in —
   only the indicators that are actually theirs to enter, nothing they could
   accidentally break.
-- **One calculation engine** that recomputes every calculated indicator
-  (totals, ratios) from the entered data — so a formula never needs to be
+- **One calculation engine** that recomputes every additive calculated
+  indicator (totals) from the entered data — so a formula never needs to be
   copied into a spreadsheet cell by hand again.
 
 Not every indicator is owned by a CSR referent, though: Safety (accidents,
 hours worked) is owned by the H&S manager / HR, and is integrated
 separately, straight from the systems that already own it (BlueKanGo, the
 Working Hours file) — see below.
+
+**This local pipeline computes sums only, never ratios, and never touches
+Sales (decision of 23/09/2026):**
+- Ratio/intensity indicators (Wat.2, Ene.10, Ene.11, Was.3, Was.4, Saf.6,
+  Saf.7) are NOT computed here. A sum rolls up correctly to a group total
+  (all 6 BUs' total energy = the sum of each BU's total energy), a ratio
+  does not (averaging or summing 6 BUs' "% renewable energy" produces a
+  number that looks plausible but is mathematically meaningless — the
+  classic "average of averages" mistake). These indicators still exist in
+  the reference list, still nobody types them in by hand, they're just
+  computed downstream instead (Power BI/Fabric), from the same raw
+  components, at whatever level of aggregation is actually meaningful.
+- Env.1 ("Sales") is excluded entirely — not read, not stored, not carried
+  over from history. This pipeline (CSR referents + BlueKanGo + Working
+  Hours) never has real sales/SAP figures to begin with; that figure is
+  joined downstream, in Fabric, alongside the ratios above.
 
 ## The pipeline
 
@@ -193,7 +209,8 @@ what gets tracked. Each row is one indicator, with:
   Safety (Saf.*, owned by H&S manager/HR) is the one case this pipeline
   handles too, via `integrate_safety_data.py` (see step 4 above) rather
   than a data entry file. Sales (Env.1, owned by Finance, sourced from SAP)
-  is not — it's handled downstream, in Fabric/Power BI, not by this project.
+  is not — this indicator doesn't appear in this reference list at all (see
+  above), it's handled entirely downstream, in Fabric/Power BI.
 
 Add, edit, or remove a row here and every script picks it up automatically
 on its next run — nothing else to change.
@@ -240,3 +257,13 @@ GitHub Actions (see `.github/workflows/tests.yml`).
   Hours file and the BlueKanGo export, to help fill in `WORKING_HOURS_FILE`
   and `ACCIDENTS_DIR` in `config.py`. Run once, or again if either file
   ever moves.
+- `scripts/migrate_2026_09_remove_env1.py` — one-time cleanup for the
+  23/09/2026 decision above: removes the Env.1 row already sitting in
+  `Indicator_reference_CSR.xlsx` and every historical Env.1 row already in
+  `Raw_data_CSR.xlsx` (both backed up first). Already run once on the real
+  files; only needed again on a fresh setup that still has an older
+  `Indicator_reference_CSR.xlsx`/`Raw_data_CSR.xlsx` predating this decision.
+- `scripts/nb_consolidate_sap_and_csr_data.py` — not run from here at all
+  (a Fabric/Spark notebook, kept in this repo for reference and version
+  history): recomputes the 7 ratio indicators and joins the real Sales/SAP
+  figure downstream, from the raw components this pipeline still produces.

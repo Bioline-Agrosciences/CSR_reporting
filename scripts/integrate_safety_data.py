@@ -44,17 +44,23 @@ file generate_data_entry_file.py produces. They come from two other systems:
     by the working hours file (our proxy for "this month is active for
     reporting") — "no accident" is a real, reportable value, not missing data.
 
-Once these rows are in Raw_data_CSR.xlsx, csr_calc_engine.py computes Saf.6
-(Frequency rate) and Saf.7 (Gravity rate) automatically — its FORMULAS dict
-already expects exactly these IDs, nothing to change there.
+Once these rows are in Raw_data_CSR.xlsx, Saf.4.2/Saf.2/Saf.3/Saf.5 are
+available for Saf.6 (Frequency rate) and Saf.7 (Gravity rate) to be
+computed downstream (Power BI/Fabric) — NOT by csr_calc_engine.py: as of
+23/09/2026 that script only computes additive (sum) indicators, never
+ratios, because a ratio can't be validly rolled up to a group total the
+way a sum can (see its module docstring). Saf.6/Saf.7 are still classified
+"calculated" in the reference list, just no longer produced by that
+script's FORMULAS dict.
 
 NOT handled here (deliberately out of scope, see the analysis shared with
 Aurélie):
-  - Env.1 "Sales" (SAP) — the Sales/SAP crossing happens downstream, in
-    Fabric/Power BI, not in this local pipeline. Wat.2, Ene.11 and Was.4
-    (which divide by Env.1) will keep using whatever Env.1 value already
-    sits in Raw_data_CSR.xlsx (likely stale/blank for recent months) until
-    that Fabric-side join exists.
+  - Env.1 "Sales" (SAP) — this pipeline has no real sales/SAP figures at
+    all; Env.1 is excluded from the reference list and from
+    Raw_data_CSR.xlsx entirely (see extract_reference_and_data.py's
+    EXCLUDED_IDS). The Sales/SAP join happens downstream, in Fabric.
+  - Wat.2, Ene.10, Ene.11, Was.3, Was.4 (ratios, same reasoning as Saf.6/
+    Saf.7 above) — also computed downstream, not here.
 
 Usage
 -----

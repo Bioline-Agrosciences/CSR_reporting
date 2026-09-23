@@ -31,6 +31,20 @@ hand matched exactly the sum of Ref.2 to Ref.9 — it is therefore reclassified
 here as "calculated" = SUM(Ref.2..Ref.9), which also fills in several cases
 where the total had been left empty despite real leaks recorded in detail.
 
+Env.1 ("Sales") is EXCLUDED entirely (decision of 23/09/2026, see
+EXCLUDED_IDS below) — this pipeline never has real sales/SAP figures to
+begin with. The reference list this script produces is therefore 38
+indicators, not 39. CALC_IDS itself is untouched: it still classifies the
+same 9 rows "calculated" as before (that classification reflects a fact
+about the ORIGINAL raw files — which rows held an Excel formula — not
+whether csr_calc_engine.py still computes them today). Separately, and
+for a different reason, csr_calc_engine.py's FORMULAS dict no longer
+computes the 7 of those 9 that are ratios (Wat.2, Ene.10, Ene.11, Was.3,
+Was.4, Saf.6, Saf.7) — ratios can't be validly rolled up to group level
+the way sums can, see that script's module docstring. They stay in this
+reference list as Kind="calculated" (still nobody types them in by hand),
+just computed downstream instead of by this script's output.
+
 How the raw data was cleaned
 -------------------------------
 Loaded with data_only=True (openpyxl) to get a cell's already-computed value,
@@ -92,8 +106,20 @@ MONTHS = ["January", "February", "March", "April", "May", "June", "July",
 HISTORICAL_YEAR = 2026
 
 # The 9 rows whose "Monthly value" is a calculation formula (Responsible=CSO)
-# in the original files, PLUS Ref.1 (see docstring above).
+# in the original files, PLUS Ref.1 (see docstring above). Historical
+# classification, describing the ORIGINAL files — untouched by the 23/09/2026
+# decision to stop COMPUTING the ratio ones here (see module docstring).
 CALC_IDS = {"Wat.2", "Ene.9", "Ene.10", "Ene.11", "Ref.1", "Was.3", "Was.4", "Saf.6", "Saf.7"}
+
+# Indicators this pipeline never tracks at all (decision of 23/09/2026) —
+# skipped entirely in build_reference(), so they never reach
+# Indicator_reference_CSR.xlsx and, as a direct consequence, never reach
+# Raw_data_CSR.xlsx either (build_raw_long only extracts IDs that made it
+# into the reference list as entry_ids). Env.1 ("Sales") specifically: this
+# pipeline (CSR referents + BlueKanGo + Working Hours) has no real sales/SAP
+# figures — that figure is joined downstream, in Fabric, where the real
+# numbers live.
+EXCLUDED_IDS = {"Env.1"}
 
 FORMULA_DESC = {
     "Wat.2": "Wat.1 / Env.1",
@@ -105,6 +131,10 @@ FORMULA_DESC = {
     "Was.4": "Was.1 / Env.1",
     "Saf.6": "(Saf.2+Saf.3) / (Saf.4.2 if provided, otherwise Env.1*Saf.4.1*8) * 1,000,000",
     "Saf.7": "Saf.5 / (Saf.4.2 if provided, otherwise Env.1*Saf.4.1*8) * 1,000",
+    # NOTE — Wat.2, Ene.10, Ene.11, Was.3, Was.4, Saf.6, Saf.7: documentation
+    # of the ORIGINAL Excel formula only. csr_calc_engine.py no longer
+    # executes these (23/09/2026, ratios can't be summed to a group total) —
+    # they're computed downstream instead, from the same raw components.
 }
 REFERENCE_NOTES = {
     "Ref.1": ("Corrected: never actually calculated in the original files (the cell was empty "
@@ -162,14 +192,16 @@ def build_reference() -> pd.DataFrame:
     February — see REFERENCE_BU/REFERENCE_MONTH). For each indicator, records
     whether it is to be filled in by a referent ("input") or calculated
     automatically ("calculated"), and for calculated indicators, records the
-    formula in plain language (see FORMULA_DESC). The result is then written
-    to Indicator_reference_CSR.xlsx by export_reference."""
+    formula in plain language (see FORMULA_DESC). IDs in EXCLUDED_IDS (Env.1)
+    are skipped entirely — never written to the reference list at all. The
+    result is then written to Indicator_reference_CSR.xlsx by
+    export_reference."""
     wb_ref = openpyxl.load_workbook(_raw_path(REFERENCE_BU), data_only=False)
     ws_ref = wb_ref[REFERENCE_MONTH]
     rows = []
     for r in range(2, ws_ref.max_row + 1):
         idv = ws_ref.cell(row=r, column=2).value
-        if not idv:
+        if not idv or idv in EXCLUDED_IDS:
             continue
         is_calc = idv in CALC_IDS
         rows.append({

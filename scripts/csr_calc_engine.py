@@ -23,9 +23,35 @@ executed (the FORMULAS dict below). Adding, changing, or removing a
 calculated indicator happens here and nowhere else — no more touching an
 Excel tab per month per BU.
 
-To add a new calculated indicator:
+ONLY ADDITIVE (sum) FORMULAS LIVE HERE — no ratios, no divisions (decision
+of 23/09/2026). This pipeline computes results at BU level AND rolls them
+up to group level (all 6 BUs together): a sum rolls up correctly (total
+energy for the group = sum of each BU's total energy), but a ratio does
+NOT — averaging or summing 6 BUs' "% renewable energy" or "frequency rate"
+produces a number that looks plausible but is mathematically meaningless
+(the classic "average of averages" mistake: it ignores each BU's weight/
+denominator). Ratio/intensity indicators — Wat.2, Ene.10, Ene.11, Was.3,
+Was.4, Saf.6, Saf.7 — are therefore NOT computed here. They still exist in
+the reference list (Kind="calculated", nobody types them in by hand), but
+whoever needs them recomputes them downstream, FROM THE RAW COMPONENTS,
+at whatever level of aggregation is actually meaningful (e.g. as Power BI
+DAX measures — see the architecture notes shared with Aurélie). Producing
+them here, at BU level only, would invite exactly the mistake this
+decision avoids: someone summing or averaging them later without
+realizing they can't be.
+
+Env.1 ("Sales") is entirely absent from this pipeline for the same
+family of reasons, plus a practical one: this pipeline (CSR referents +
+BlueKanGo + Working Hours) never has real sales/SAP figures to begin with.
+It is not read, not stored, not carried over from history — see
+extract_reference_and_data.py for where it's excluded at the source, and
+where a group-level Sales figure actually gets joined in (downstream, in
+Fabric, alongside the ratios above).
+
+To add a new (additive) calculated indicator:
   1. Add a row to the reference list (ID, Topic, KPI, Unit, Kind="calculated", ...).
-  2. Add an entry to the FORMULAS dict below: "My.ID": lambda v: ...
+  2. Add an entry to the FORMULAS dict below: "My.ID": lambda v: ... — a
+     sum of z(v(...)) terms, never a division.
   That's it — it will be calculated for every BU and every month on the next run.
 
 Usage
@@ -64,7 +90,11 @@ MONTH_ORDER = ["January", "February", "March", "April", "May", "June", "July",
 # recalculation — the engine corrects these cases, this is not a defect on
 # its part (see the verification report delivered with this prototype for
 # the detail of each case). Only used by validate_against_originals (a
-# one-off check).
+# one-off check). Only entries for IDs still in FORMULAS matter here (the
+# ratio indicators removed from FORMULAS on 23/09/2026 — Ene.10, Ene.11,
+# Was.3, Was.4, Saf.6, Saf.7 — had entries of their own; removed along with
+# them, since validate_against_originals can no longer compute those IDs to
+# compare in the first place).
 # Keys stay (BU, Month, ID) without a Year — validate_against_originals only
 # ever compares against HISTORICAL_VALIDATION_YEAR (2026), the one and only
 # year the original raw files covered, so a Year element here would be pure
@@ -72,14 +102,7 @@ MONTH_ORDER = ["January", "February", "March", "April", "May", "June", "July",
 KNOWN_CORRECTIONS = {
     ("Viridaxis", "June", "Ene.9"): "original Excel formula was broken (#REF!)",
     ("Viridaxis", "July", "Ene.9"): "original formula pointed to June (uncorrected copy-paste)",
-    ("Viridaxis", "July", "Ene.11"): "cascading consequence of the Ene.9 error above (Ene.11 = Ene.9 / Env.1)",
     ("BFR", "March", "Ene.9"): "cell replaced by a frozen value (formula lost) in the original file",
-    ("BFR", "March", "Ene.10"): "cell replaced by a frozen value (formula lost) in the original file",
-    ("BFR", "March", "Ene.11"): "cell replaced by a frozen value (formula lost) in the original file",
-    ("BFR", "March", "Was.3"): "cell replaced by a frozen value (formula lost) in the original file",
-    ("BFR", "March", "Was.4"): "cell replaced by a frozen value (formula lost) in the original file",
-    ("BFR", "March", "Saf.6"): "cell replaced by a frozen value (formula lost) in the original file",
-    ("BFR", "March", "Saf.7"): "cell replaced by a frozen value (formula lost) in the original file",
     ("Viridaxis", "July", "Ref.1"): "hand-entered value (0) inconsistent with Ref.2-9 (a 23kg leak not reflected in the total)",
     ("BUK", "June", "Ref.1"): "hand-entered value (0) inconsistent with Ref.2-9 (a 1.5kg leak not reflected in the total)",
 }
@@ -101,37 +124,21 @@ def z(x):
     return 0 if x is None or (isinstance(x, float) and pd.isna(x)) else x
 
 
-def _hours_worked(v):
-    """Hours worked and paid: Saf.4.2 if provided, otherwise a flat estimate
-    (Sales x working days x 8h) — reproduces exactly the original Excel
-    formula (=IF(J37="", J2*J36*8, J37))."""
-    saf42 = v("Saf.4.2")
-    if saf42 in (None, "") or (isinstance(saf42, float) and pd.isna(saf42)):
-        return z(v("Env.1")) * z(v("Saf.4.1")) * 8
-    return saf42
-
-
 FORMULAS = {
-    "Wat.2": lambda v: z(v("Wat.1")) / v("Env.1"),
     "Ene.9": lambda v: (z(v("Ene.1")) + z(v("Ene.2")) + z(v("Ene.3")) + z(v("Ene.4")) + z(v("Ene.5"))
                          + z(v("Ene.6")) * z(v("Ene.6.1"))
                          + z(v("Ene.7")) * z(v("Ene.7.1"))
                          + z(v("Ene.8")) * z(v("Ene.7.1"))),
-    "Ene.10": lambda v: (z(v("Ene.2")) + z(v("Ene.3")) + z(v("Ene.4"))) / v("Ene.9"),
-    "Ene.11": lambda v: v("Ene.9") / v("Env.1"),
     "Ref.1": lambda v: sum(z(v(f"Ref.{i}")) for i in range(2, 10)),
-    "Was.3": lambda v: z(v("Was.2")) / v("Was.1"),
-    "Was.4": lambda v: z(v("Was.1")) / v("Env.1"),
-    "Saf.6": lambda v: (z(v("Saf.2")) + z(v("Saf.3"))) / _hours_worked(v) * 1_000_000,
-    "Saf.7": lambda v: z(v("Saf.5")) / _hours_worked(v) * 1_000,
 }
 
 
 def compute_bu_month(raw_values: dict) -> dict:
     """Computes every "calculated" indicator (see FORMULAS) for ONE BU and
-    ONE month, from the entered values (raw_values). Some formulas depend on
-    the result of another calculated formula (e.g. Ene.11 needs Ene.9
-    already computed): the function therefore retries the formulas that
+    ONE month, from the entered values (raw_values). A formula can depend on
+    the result of another calculated formula (none currently do, now that
+    FORMULAS only holds sums — but the retry loop stays generic in case a
+    future addition ever needs it): the function retries the formulas that
     failed, until every one that can be computed has been — the ones that
     truly cannot, for lack of input data, are simply left out of the result
     rather than crashing the script."""
