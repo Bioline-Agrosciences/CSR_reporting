@@ -48,11 +48,25 @@ extract_reference_and_data.py for where it's excluded at the source, and
 where a group-level Sales figure actually gets joined in (downstream, in
 Fabric, alongside the ratios above).
 
+A THIRD category, alongside FORMULAS (sums of already-entered values) and
+"not computed at all" (the ratios above): CONTEXTUAL_VALUES, for the 3
+indicators that were historically hand-typed every month (Ene.6.1, Ene.7.1,
+Saf.4.1) but are neither something a referent should have to enter NOR a
+sum of other entered values — they come from context that's already known
+without anyone entering anything (a physical constant, or a public-holiday
+calendar), see CONTEXTUAL_VALUES below for why this needs its own
+mechanism (a FORMULAS lambda has no idea which BU or month it's running
+for; these do, and that's exactly what they need).
+
 To add a new (additive) calculated indicator:
   1. Add a row to the reference list (ID, Topic, KPI, Unit, Kind="calculated", ...).
   2. Add an entry to the FORMULAS dict below: "My.ID": lambda v: ... — a
      sum of z(v(...)) terms, never a division.
   That's it — it will be calculated for every BU and every month on the next run.
+
+To add a new contextual value (a constant or something derivable from
+BU/year/month alone, never from other entered values): add an entry to
+CONTEXTUAL_VALUES instead — "My.ID": lambda bu, year, month: ...
 
 Usage
 -----
@@ -66,10 +80,12 @@ only runs if raw_data/ still contains the 6 original files.
 Dependencies: pandas, openpyxl.
 """
 
+import calendar
 import sys
 from datetime import date
 from pathlib import Path
 
+import holidays as holidays_lib
 import pandas as pd
 
 # Robust import of config.py, whether this script is launched via
@@ -130,6 +146,43 @@ FORMULAS = {
                          + z(v("Ene.7")) * z(v("Ene.7.1"))
                          + z(v("Ene.8")) * z(v("Ene.7.1"))),
     "Ref.1": lambda v: sum(z(v(f"Ref.{i}")) for i in range(2, 10)),
+}
+
+
+def working_days_in_month(country_code: str, year: int, month: int) -> int:
+    """Number of weekdays (Mon-Fri) in a given month that are NOT a public
+    holiday in `country_code` (ISO 3166-1 alpha-2, e.g. "FR", "KE") —
+    computed fresh from the `holidays` package's calendar every time, never
+    hand-typed or stored. This is Saf.4.1's new definition (23/09/2026): the
+    historical hand-entered values (see config.BU_COUNTRY) were essentially
+    identical across every BU regardless of country, which this replaces
+    with an actually country-aware count."""
+    country_holidays = holidays_lib.country_holidays(country_code, years=year)
+    _, days_in_month = calendar.monthrange(year, month)
+    return sum(
+        1 for day in range(1, days_in_month + 1)
+        if date(year, month, day).weekday() < 5 and date(year, month, day) not in country_holidays
+    )
+
+
+# Indicators computed from CONTEXT (which BU, which year/month) rather than
+# from other entered values (that's FORMULAS' job) or not computed here at
+# all (the ratios, see module docstring). Added 23/09/2026, replacing what
+# used to be 3 separate "input" indicators nobody was actually keeping
+# up to date every month (Ene.6.1, Ene.7.1: a physical constant that never
+# changes; Saf.4.1: a public-holiday calendar count, previously approximated
+# by hand and identically across every BU regardless of country). Injected
+# into each (BU, Year, Month) group's raw_values BEFORE compute_bu_month
+# runs (see run()) — so FORMULAS entries that already reference them (Ene.9
+# uses Ene.6.1/Ene.7.1) keep working unchanged, now resolving to these
+# instead of to a hand-typed value.
+CONTEXTUAL_VALUES = {
+    "Ene.6.1": lambda bu, year, month: config.LPG_CONVERSION_FACTOR[bu],
+    "Ene.7.1": lambda bu, year, month: config.FUEL_CONVERSION_FACTOR[bu],
+    # `month` arrives as a name ("January"), same as everywhere else in this
+    # pipeline — working_days_in_month needs the 1-12 number instead.
+    "Saf.4.1": lambda bu, year, month: working_days_in_month(
+        config.BU_COUNTRY[bu], year, MONTH_ORDER.index(month) + 1),
 }
 
 
@@ -208,13 +261,16 @@ def run(reference: pd.DataFrame, raw: pd.DataFrame) -> pd.DataFrame:
     the raw data, computes every "calculated" indicator from the entered
     values (via compute_bu_month — formulas never mix values from two
     different years, since the grouping is per (BU, Year, Month)), then
-    gathers everything — entered AND calculated — into a single consolidated
-    table, sorted by BU / year / month / indicator. This is the table that
-    main() then writes to output_data/Consolidated_results_CSR.xlsx."""
+    gathers everything — entered, calculated, AND contextual (see
+    CONTEXTUAL_VALUES) — into a single consolidated table, sorted by BU /
+    year / month / indicator. This is the table that main() then writes to
+    output_data/Consolidated_results_CSR.xlsx."""
     meta = reference.set_index("ID")[["Topic", "KPI", "Unit", "Kind"]]
     results = []
     for (bu, year, month), grp in raw.groupby(["BU", "Year", "Month"], sort=False):
         raw_values = dict(zip(grp["ID"], grp["Value"]))
+        for kpi_id, contextual_fn in CONTEXTUAL_VALUES.items():
+            raw_values[kpi_id] = contextual_fn(bu, year, month)
         computed = compute_bu_month(raw_values)
         for kpi_id, value in computed.items():
             if kpi_id not in meta.index:

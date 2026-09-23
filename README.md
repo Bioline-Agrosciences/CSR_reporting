@@ -45,6 +45,18 @@ Sales (decision of 23/09/2026):**
   over from history. This pipeline (CSR referents + BlueKanGo + Working
   Hours) never has real sales/SAP figures to begin with; that figure is
   joined downstream, in Fabric, alongside the ratios above.
+- Saf.4 ("FTE" / headcount) is likewise excluded entirely — no longer
+  tracked or used anywhere in this pipeline.
+- Ene.6.1, Ene.7.1 (LPG/Fuel conversion factors) and Saf.4.1 (working days
+  in the month) used to be hand-typed every month, but nothing was actually
+  keeping them up to date. They're now computed fresh on every run instead
+  (`csr_calc_engine.py`'s `CONTEXTUAL_VALUES`): the two conversion factors
+  come straight from `config.py` (`LPG_CONVERSION_FACTOR`,
+  `FUEL_CONVERSION_FACTOR` — one value per BU, so a single BU can be
+  corrected later without touching the others, even though every BU uses
+  the same value today), and Saf.4.1 from a public-holiday-aware calendar
+  count (the `holidays` package) for the country each BU reports from
+  (`config.BU_COUNTRY`).
 
 ## The pipeline
 
@@ -202,15 +214,24 @@ Then run any script with `uv run scripts/<name>.py`, from the project root.
 what gets tracked. Each row is one indicator, with:
 
 - **Kind**: `input` (a referent types it in) or `calculated` (the engine
-  computes it — never shown in the file the referent fills in).
+  computes it — never shown in the file the referent fills in). `calculated`
+  covers three different mechanisms under the hood: a sum of other entered
+  values (`csr_calc_engine.py`'s `FORMULAS`), a value derived from context
+  alone — a constant or a calendar, never anyone's entry
+  (`CONTEXTUAL_VALUES`), or computed downstream instead, not by this
+  pipeline at all (the ratios, see above).
 - **Responsible**: who actually owns that number — usually "CSR referent",
   but some indicators belong to Finance, HR, or the H&S manager instead;
   those are entered elsewhere, not through this pipeline's data entry file.
   Safety (Saf.*, owned by H&S manager/HR) is the one case this pipeline
   handles too, via `integrate_safety_data.py` (see step 4 above) rather
-  than a data entry file. Sales (Env.1, owned by Finance, sourced from SAP)
-  is not — this indicator doesn't appear in this reference list at all (see
-  above), it's handled entirely downstream, in Fabric/Power BI.
+  than a data entry file. Sales (Env.1) and FTE (Saf.4) don't appear in
+  this reference list at all anymore (see above) — Env.1 is handled
+  entirely downstream, in Fabric/Power BI, and Saf.4 isn't tracked
+  anywhere in this pipeline any longer.
+
+39 indicators originally; 37 remain after Env.1 and Saf.4 were excluded
+(23/09/2026).
 
 Add, edit, or remove a row here and every script picks it up automatically
 on its next run — nothing else to change.
@@ -263,6 +284,9 @@ GitHub Actions (see `.github/workflows/tests.yml`).
   `Raw_data_CSR.xlsx` (both backed up first). Already run once on the real
   files; only needed again on a fresh setup that still has an older
   `Indicator_reference_CSR.xlsx`/`Raw_data_CSR.xlsx` predating this decision.
+- `scripts/migrate_2026_09_reclassify_conversion_factors.py` — same idea,
+  for the Saf.4 (FTE) exclusion and the Ene.6.1/Ene.7.1/Saf.4.1
+  reclassification above. Already run once on the real files.
 - `scripts/nb_consolidate_sap_and_csr_data.py` — not run from here at all
   (a Fabric/Spark notebook, kept in this repo for reference and version
   history): recomputes the 7 ratio indicators and joins the real Sales/SAP

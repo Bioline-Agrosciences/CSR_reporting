@@ -12,8 +12,11 @@ file generate_data_entry_file.py produces. They come from two other systems:
   - config.WORKING_HOURS_FILE  -> Saf.4.2 "Working hours of the month"
     One fixed file, wide format (1 row per BU, 1 column per month), updated
     in place. A blank cell means the month hasn't been declared yet (left
-    out here, not defaulted to 0 or 0 hours — csr_calc_engine.py already
-    knows how to estimate a fallback from FTE if Saf.4.2 is truly missing).
+    out here, not defaulted to 0 or 0 hours). No fallback exists anymore if
+    Saf.4.2 is missing (there used to be one, based on Env.1/FTE — both
+    gone from this pipeline as of 23/09/2026, see csr_calc_engine.py):
+    Saf.6/Saf.7 simply can't be computed downstream for a month with no
+    Saf.4.2, same as any other missing raw component.
 
   - config.ACCIDENTS_DIR / config.ACCIDENTS_FILE_PATTERN -> the BlueKanGo
     accidents export, one row per accident/incident. Picks the most recently

@@ -2,6 +2,8 @@
 real business logic executed by the pipeline (the "calculated" indicators'
 formulas). Everything here is testable with no Excel file at all:
 compute_bu_month takes a plain dict, run() plain pandas DataFrames."""
+from datetime import date
+
 import openpyxl
 import pandas as pd
 import pytest
@@ -33,6 +35,64 @@ def test_formulas_only_contains_additive_indicators():
     # group total), and no Env.1 (never available to this pipeline). If this
     # ever fails, someone added a division back — see the module docstring.
     assert set(engine.FORMULAS) == {"Ene.9", "Ref.1"}
+
+
+# ---------------------------------------------------------------------------
+# working_days_in_month / CONTEXTUAL_VALUES — indicators derived from
+# BU/year/month context (a constant, a public-holiday calendar), never from
+# other entered values (that's FORMULAS) and never hand-typed (that's why
+# they're no longer "input" — see extract_reference_and_data.py).
+# ---------------------------------------------------------------------------
+
+def test_working_days_in_month_excludes_weekends():
+    # February 2026: 28 days, starts on a Sunday -> exactly 20 weekdays,
+    # and (checked separately, see the next test) no French public holiday
+    # falls in February, so this also verifies the weekend-only baseline.
+    assert engine.working_days_in_month("FR", 2026, 2) == 20
+
+
+def test_working_days_in_month_excludes_public_holidays_on_weekdays():
+    # 1 May 2026 is a Friday AND Labour Day (public holiday) in France —
+    # must be excluded on top of the weekend exclusion.
+    weekdays_only = sum(1 for d in range(1, 32) if date(2026, 5, d).weekday() < 5)
+    with_holidays = engine.working_days_in_month("FR", 2026, 5)
+    assert with_holidays < weekdays_only
+
+
+def test_contextual_values_covers_exactly_the_reclassified_indicators():
+    # Ene.6.1/Ene.7.1/Saf.4.1: reclassified 23/09/2026 from hand-typed
+    # "input" (nobody was actually keeping them up to date) to "calculated"
+    # from context. If this ever fails, check extract_reference_and_data.py's
+    # CALC_IDS stayed in sync.
+    assert set(engine.CONTEXTUAL_VALUES) == {"Ene.6.1", "Ene.7.1", "Saf.4.1"}
+
+
+def test_run_injects_contextual_conversion_factor():
+    reference = pd.DataFrame([
+        {"ID": "Ene.6.1", "Topic": "Energy consumption", "KPI": "Conversion factor LPG",
+         "Unit": "kWh/kg", "Kind": "calculated"},
+    ])
+    # Ene.1 just seeds a (BU, Year, Month) group for run() to iterate over —
+    # Ene.6.1 doesn't depend on anything entered, it's injected regardless.
+    raw = pd.DataFrame([{"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Ene.1", "Value": 1.0}])
+
+    out = engine.run(reference, raw)
+
+    ene61 = out[out.ID == "Ene.6.1"].iloc[0]
+    assert ene61["Value"] == pytest.approx(config.LPG_CONVERSION_FACTOR["BAF"])
+
+
+def test_run_injects_contextual_working_days_per_bu_country():
+    reference = pd.DataFrame([
+        {"ID": "Saf.4.1", "Topic": "H&S", "KPI": "Number of working days for the month",
+         "Unit": "nb", "Kind": "calculated"},
+    ])
+    raw = pd.DataFrame([{"BU": "BFR", "Year": 2026, "Month": "May", "ID": "Ene.1", "Value": 1.0}])
+
+    out = engine.run(reference, raw)
+
+    saf41 = out[out.ID == "Saf.4.1"].iloc[0]
+    assert saf41["Value"] == engine.working_days_in_month(config.BU_COUNTRY["BFR"], 2026, 5)
 
 
 def test_ene9_combines_direct_and_weighted_sources():
