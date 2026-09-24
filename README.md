@@ -291,3 +291,20 @@ GitHub Actions (see `.github/workflows/tests.yml`).
   (a Fabric/Spark notebook, kept in this repo for reference and version
   history): recomputes the 7 ratio indicators and joins the real Sales/SAP
   figure downstream, from the raw components this pipeline still produces.
+- `scripts/compare_archived_vs_consolidated.py` — diagnostic tool, run by
+  hand whenever you want to see exactly how much a pipeline change moved
+  the numbers: compares every indicator as it originally appeared in the
+  raw per-BU workbooks (`RAW_DATA_DIR`) against `output_data/
+  Consolidated_results_CSR.xlsx`, for `HISTORICAL_YEAR` only. Tells apart
+  genuine differences, absences that are expected by design (Env.1/Saf.4
+  exclusions, ratio indicators no longer computed here — derived live from
+  the current `FORMULAS`/`CONTEXTUAL_VALUES`/`EXCLUDED_IDS`, so it can't
+  silently drift out of sync), and unexpected absences worth investigating.
+  Prints a per-ID summary and a sample of rows to the console, and always
+  writes the full detail to a timestamped `output_data/
+  Comparison_archived_vs_consolidated_<date>.xlsx` ("Summary" and "Details"
+  sheets).
+  ```
+  uv run scripts/compare_archived_vs_consolidated.py          # every indicator
+  uv run scripts/compare_archived_vs_consolidated.py Saf       # only IDs starting with "Saf"
+  ```
