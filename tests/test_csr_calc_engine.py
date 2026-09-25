@@ -34,7 +34,8 @@ def test_formulas_only_contains_additive_indicators():
     # 23/09/2026 decision: no ratios/divisions here (can't be summed to a
     # group total), and no Env.1 (never available to this pipeline). If this
     # ever fails, someone added a division back — see the module docstring.
-    assert set(engine.FORMULAS) == {"Ene.9", "Ref.1"}
+    # Carb.1-5 (added 25/09/2026) are quantity * factor, still additive.
+    assert set(engine.FORMULAS) == {"Ene.9", "Ref.1", "Carb.1", "Carb.2", "Carb.3", "Carb.4", "Carb.5"}
 
 
 # ---------------------------------------------------------------------------
@@ -59,12 +60,16 @@ def test_working_days_in_month_excludes_public_holidays_on_weekdays():
     assert with_holidays < weekdays_only
 
 
-def test_contextual_values_covers_exactly_the_reclassified_indicators():
+def test_contextual_values_covers_exactly_the_reclassified_and_emission_factor_indicators():
     # Ene.6.1/Ene.7.1/Saf.4.1: reclassified 23/09/2026 from hand-typed
     # "input" (nobody was actually keeping them up to date) to "calculated"
-    # from context. If this ever fails, check extract_reference_and_data.py's
-    # CALC_IDS stayed in sync.
-    assert set(engine.CONTEXTUAL_VALUES) == {"Ene.6.1", "Ene.7.1", "Saf.4.1"}
+    # from context. Ene.12-15 (added 25/09/2026): per-BU CO2 emission
+    # factors, feeding the Carb.1-5 formulas — also never hand-typed. If
+    # this ever fails, check extract_reference_and_data.py's CALC_IDS /
+    # CARBON_INDICATORS stayed in sync.
+    assert set(engine.CONTEXTUAL_VALUES) == {
+        "Ene.6.1", "Ene.7.1", "Saf.4.1", "Ene.12", "Ene.13", "Ene.14", "Ene.15",
+    }
 
 
 def test_run_injects_contextual_conversion_factor():
@@ -93,6 +98,63 @@ def test_run_injects_contextual_working_days_per_bu_country():
 
     saf41 = out[out.ID == "Saf.4.1"].iloc[0]
     assert saf41["Value"] == engine.working_days_in_month(config.BU_COUNTRY["BFR"], 2026, 5)
+
+
+def test_run_injects_contextual_electricity_emission_factor_varies_by_country():
+    # Unlike the LPG/Fuel conversion factors and the other 3 emission
+    # factors (identical across BUs today), electricity's factor genuinely
+    # varies by country -- BAF (Kenya) and BFR (France) must resolve to
+    # different values, not accidentally the same constant for every BU.
+    reference = pd.DataFrame([
+        {"ID": "Ene.12", "Topic": "Energy", "KPI": "Electricity - FE", "Unit": "tCO2/kWh", "Kind": "calculated"},
+    ])
+    raw = pd.DataFrame([
+        {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Ene.1", "Value": 1.0},
+        {"BU": "BFR", "Year": 2026, "Month": "January", "ID": "Ene.1", "Value": 1.0},
+    ])
+
+    out = engine.run(reference, raw)
+
+    ene12_by_bu = out[out.ID == "Ene.12"].set_index("BU")["Value"]
+    assert ene12_by_bu["BAF"] == pytest.approx(config.ELECTRICITY_EMISSION_FACTOR["BAF"])
+    assert ene12_by_bu["BFR"] == pytest.approx(config.ELECTRICITY_EMISSION_FACTOR["BFR"])
+    assert ene12_by_bu["BAF"] != ene12_by_bu["BFR"]
+
+
+# ---------------------------------------------------------------------------
+# Carb.1-5 — CO2 emissions from energy consumption (added 25/09/2026):
+# quantity (Ene.1/5/6/7) * a per-BU CO2 emission factor (Ene.12-15). Still
+# additive: a quantity times a factor sums correctly to a group total,
+# unlike a ratio -- see the module docstring.
+# ---------------------------------------------------------------------------
+
+def test_carb_formulas_multiply_energy_by_its_emission_factor():
+    values = {
+        "Ene.1": 100.0, "Ene.12": 0.0002,
+        "Ene.5": 50.0, "Ene.13": 0.0003,
+        "Ene.7": 10.0, "Ene.14": 0.0026,
+        "Ene.6": 5.0, "Ene.15": 0.0024,
+    }
+    v = lambda i: values[i]
+    assert engine.FORMULAS["Carb.1"](v) == pytest.approx(100.0 * 0.0002)
+    assert engine.FORMULAS["Carb.2"](v) == pytest.approx(50.0 * 0.0003)
+    assert engine.FORMULAS["Carb.3"](v) == pytest.approx(10.0 * 0.0026)
+    assert engine.FORMULAS["Carb.4"](v) == pytest.approx(5.0 * 0.0024)
+
+
+def test_compute_bu_month_chains_carb5_from_carb1_through_4():
+    # Carb.5 depends on Carb.1-4, which are themselves calculated (not raw
+    # inputs) -- exercises compute_bu_month's retry loop that lets a formula
+    # depend on another formula's result.
+    raw = {
+        "Ene.1": 100.0, "Ene.12": 0.0002,
+        "Ene.5": 50.0, "Ene.13": 0.0003,
+        "Ene.7": 10.0, "Ene.14": 0.0026,
+        "Ene.6": 5.0, "Ene.15": 0.0024,
+    }
+    result = engine.compute_bu_month(raw)
+    expected = 100.0 * 0.0002 + 50.0 * 0.0003 + 10.0 * 0.0026 + 5.0 * 0.0024
+    assert result["Carb.5"] == pytest.approx(expected)
 
 
 def test_ene9_combines_direct_and_weighted_sources():
