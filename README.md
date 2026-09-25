@@ -202,10 +202,12 @@ Then run any script with `uv run scripts/<name>.py`, from the project root.
    uv run scripts/csr_calc_engine.py
    ```
    Writes `output_data/Consolidated_results_CSR.xlsx` (two tabs: "Results",
-   every indicator/BU/month, and "Completion", a BU x month % completion
-   matrix for the current year, scoped to the CSR-referent-owned
+   every indicator/BU/month, and "Completion", one row per BU x month with
+   its % completion for the current year, scoped to the CSR-referent-owned
    indicators — the same tracking each BU's own "Tracking" tab shows
-   individually, consolidated here across all 6 BUs in one place), and
+   individually, consolidated here across all 6 BUs in one place; long/tidy
+   format, so BU and Month are both plain columns a PivotTable or Power BI
+   can filter and group by directly), and
    emails the anomaly report (see below).
 
 ## The indicator reference list

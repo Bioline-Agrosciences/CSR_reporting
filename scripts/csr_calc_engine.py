@@ -238,7 +238,11 @@ def build_completion_table(raw: pd.DataFrame, reference: pd.DataFrame, current_y
     "Tracking" tab already shows individually — no need to open 6 files to
     see who's behind. Every one of the 12 months is included (not just
     months already due): a future month simply reads 0%, same convention as
-    the per-BU Tracking tab."""
+    the per-BU Tracking tab.
+
+    Long/tidy format: one row per (BU, Month), with BU and Month as plain
+    columns (not one column per month) so a PivotTable or Power BI can
+    filter and group by either one directly."""
     raw = raw[raw.Year == current_year]
     referent_ids = set(reference[(reference.Kind == "input") & (reference.Responsible == "CSR referent")]["ID"])
     total = len(referent_ids)
@@ -248,11 +252,13 @@ def build_completion_table(raw: pd.DataFrame, reference: pd.DataFrame, current_y
 
     rows = []
     for bu in sorted(raw["BU"].unique()):
-        row = {"BU": bu}
         for month in MONTH_ORDER:
             count = filled_counts.get((bu, month), 0)
-            row[month] = f"{round(100 * count / total)}%" if total else "0%"
-        rows.append(row)
+            rows.append({
+                "BU": bu,
+                "Month": month,
+                "completion_percent": round(100 * count / total) if total else 0,
+            })
     return pd.DataFrame(rows)
 
 
