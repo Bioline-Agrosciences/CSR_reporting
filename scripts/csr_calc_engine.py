@@ -146,6 +146,16 @@ FORMULAS = {
                          + z(v("Ene.7")) * z(v("Ene.7.1"))
                          + z(v("Ene.8")) * z(v("Ene.7.1"))),
     "Ref.1": lambda v: sum(z(v(f"Ref.{i}")) for i in range(2, 10)),
+    # CO2 emissions from energy consumption (25/09/2026) — a quantity times a
+    # per-BU emission factor stays additive at group level (unlike a ratio):
+    # sum-over-BU(Ene.X * factor) is the same as sum-over-BU(Ene.X) * factor
+    # when the factor is uniform, and still a meaningful total even when it
+    # isn't (electricity's factor varies by country).
+    "Carb.1": lambda v: z(v("Ene.1")) * z(v("Ene.12")),
+    "Carb.2": lambda v: z(v("Ene.5")) * z(v("Ene.13")),
+    "Carb.3": lambda v: z(v("Ene.7")) * z(v("Ene.14")),
+    "Carb.4": lambda v: z(v("Ene.6")) * z(v("Ene.15")),
+    "Carb.5": lambda v: sum(z(v(f"Carb.{i}")) for i in range(1, 5)),
 }
 
 
@@ -183,6 +193,13 @@ CONTEXTUAL_VALUES = {
     # pipeline — working_days_in_month needs the 1-12 number instead.
     "Saf.4.1": lambda bu, year, month: working_days_in_month(
         config.BU_COUNTRY[bu], year, MONTH_ORDER.index(month) + 1),
+    # CO2 emission factors (25/09/2026) — per-BU constants (electricity varies
+    # by country's grid mix; the other 3 happen to be identical across BUs
+    # today), feeding the Carb.1-5 formulas above. Never hand-typed.
+    "Ene.12": lambda bu, year, month: config.ELECTRICITY_EMISSION_FACTOR[bu],
+    "Ene.13": lambda bu, year, month: config.NATURAL_GAS_EMISSION_FACTOR[bu],
+    "Ene.14": lambda bu, year, month: config.FUEL_EMISSION_FACTOR[bu],
+    "Ene.15": lambda bu, year, month: config.LPG_EMISSION_FACTOR[bu],
 }
 
 

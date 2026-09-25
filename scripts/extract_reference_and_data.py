@@ -34,8 +34,12 @@ where the total had been left empty despite real leaks recorded in detail.
 Env.1 ("Sales") and Saf.4 ("FTE" / headcount) are EXCLUDED entirely
 (decisions of 23/09/2026, see EXCLUDED_IDS below) — this pipeline never has
 real sales/SAP figures to begin with (Env.1), and FTE is simply no longer
-tracked or used anywhere in this pipeline (Saf.4). The reference list this
-script produces is therefore 37 indicators, not 39.
+tracked or used anywhere in this pipeline (Saf.4). That leaves 37 of the
+original 39 indicators, PLUS 9 more appended on top (CARBON_INDICATORS,
+added 25/09/2026 — Ene.12-15 and Carb.1-5, CO2 emissions from energy
+consumption, omitted from the initial extraction because they're absent
+from the raw workbooks entirely, see CARBON_INDICATORS below): 46
+indicators in total.
 
 CALC_IDS carries TWO kinds of exception on top of the 9 original
 CSO-formula rows:
@@ -134,6 +138,73 @@ CALC_IDS = {"Wat.2", "Ene.9", "Ene.10", "Ene.11", "Ref.1", "Was.3", "Was.4", "Sa
 #     pipeline — nothing computes or consumes it.
 EXCLUDED_IDS = {"Env.1", "Saf.4"}
 
+# CO2 emissions from energy consumption (25/09/2026): Ene.12-15 (per-BU CO2
+# emission factors — electricity, natural gas, fuel, LPG) and Carb.1-5 (the
+# emissions themselves, quantity * factor — see csr_calc_engine.py's
+# FORMULAS/CONTEXTUAL_VALUES). These 9 indicators were part of the intended
+# catalog from the start and simply got left out of the initial extraction
+# — not a newly-invented metric. Unlike every other row in the reference
+# list, they can't be read from a raw workbook: confirmed (25/09/2026, all
+# 12 monthly tabs of the BAF file inspected directly) that none of these 9
+# IDs appear anywhere in the original raw files at all — no ID, no topic,
+# no KPI name. So they're appended here directly, all Kind="calculated",
+# rather than looped from a sheet like the rest of build_reference().
+CARBON_INDICATORS = [
+    {"ID": "Ene.12", "Topic": "Energy", "KPI": "Electricity - FE", "Unit": "tCO2/kWh",
+     "Kind": "calculated", "Responsible": "CSO",
+     "Formula (documentation)": "Constant: config.ELECTRICITY_EMISSION_FACTOR[BU] "
+                                 "(varies by country's grid mix)",
+     "Definition": "CO2 emission factor for electricity, per BU's country grid mix.",
+     "Calculation detail": "", "Consistency check": "",
+     "Source of data": "Group CSR indicator framework (country grid emission factors), provided 25/09/2026.",
+     "Notes": ""},
+    {"ID": "Ene.13", "Topic": "Energy", "KPI": "Natural Gas - FE", "Unit": "tCO2/kWh",
+     "Kind": "calculated", "Responsible": "CSO",
+     "Formula (documentation)": "Constant: config.NATURAL_GAS_EMISSION_FACTOR[BU]",
+     "Definition": "CO2 emission factor for natural gas.",
+     "Calculation detail": "", "Consistency check": "",
+     "Source of data": "Group CSR indicator framework, provided 25/09/2026.", "Notes": ""},
+    {"ID": "Ene.14", "Topic": "Energy", "KPI": "Fioul - average FE", "Unit": "tCO2/L",
+     "Kind": "calculated", "Responsible": "CSO",
+     "Formula (documentation)": "Constant: config.FUEL_EMISSION_FACTOR[BU]",
+     "Definition": "CO2 emission factor for fuel (fioul).",
+     "Calculation detail": "", "Consistency check": "",
+     "Source of data": "Group CSR indicator framework, provided 25/09/2026.", "Notes": ""},
+    {"ID": "Ene.15", "Topic": "Energy", "KPI": "LPG - average FE", "Unit": "tCO2/kg",
+     "Kind": "calculated", "Responsible": "CSO",
+     "Formula (documentation)": "Constant: config.LPG_EMISSION_FACTOR[BU]",
+     "Definition": "CO2 emission factor for LPG.",
+     "Calculation detail": "", "Consistency check": "",
+     "Source of data": "Group CSR indicator framework, provided 25/09/2026.", "Notes": ""},
+    {"ID": "Carb.1", "Topic": "Energy", "KPI": "CO2 emissions - Electricity", "Unit": "tCO2",
+     "Kind": "calculated", "Responsible": "CSO", "Formula (documentation)": "Ene.1 * Ene.12",
+     "Definition": "CO2 emissions from electricity consumption.",
+     "Calculation detail": "", "Consistency check": "",
+     "Source of data": "Computed from Ene.1 and Ene.12.", "Notes": ""},
+    {"ID": "Carb.2", "Topic": "Energy", "KPI": "CO2 emissions - Natural gas", "Unit": "tCO2",
+     "Kind": "calculated", "Responsible": "CSO", "Formula (documentation)": "Ene.5 * Ene.13",
+     "Definition": "CO2 emissions from natural gas consumption.",
+     "Calculation detail": "", "Consistency check": "",
+     "Source of data": "Computed from Ene.5 and Ene.13.", "Notes": ""},
+    {"ID": "Carb.3", "Topic": "Energy", "KPI": "CO2 emissions - Fuel", "Unit": "tCO2",
+     "Kind": "calculated", "Responsible": "CSO", "Formula (documentation)": "Ene.7 * Ene.14",
+     "Definition": "CO2 emissions from fuel consumption.",
+     "Calculation detail": "", "Consistency check": "",
+     "Source of data": "Computed from Ene.7 and Ene.14.", "Notes": ""},
+    {"ID": "Carb.4", "Topic": "Energy", "KPI": "CO2 emissions - LPG", "Unit": "tCO2",
+     "Kind": "calculated", "Responsible": "CSO", "Formula (documentation)": "Ene.6 * Ene.15",
+     "Definition": "CO2 emissions from LPG consumption.",
+     "Calculation detail": "", "Consistency check": "",
+     "Source of data": "Computed from Ene.6 and Ene.15.", "Notes": ""},
+    {"ID": "Carb.5", "Topic": "Energy", "KPI": "Total CO2 emissions (energy)", "Unit": "tCO2",
+     "Kind": "calculated", "Responsible": "CSO",
+     "Formula (documentation)": "Carb.1 + Carb.2 + Carb.3 + Carb.4",
+     "Definition": "Total CO2 emissions from energy consumption (electricity, natural gas, fuel, LPG).",
+     "Calculation detail": "", "Consistency check": "",
+     "Source of data": "Sum of Carb.1-4.", "Notes": ""},
+]
+CARBON_INDICATOR_IDS = {row["ID"] for row in CARBON_INDICATORS}
+
 FORMULA_DESC = {
     "Wat.2": "Wat.1 / Env.1",
     "Ene.9": "Ene.1 + Ene.2 + Ene.3 + Ene.4 + Ene.5 + Ene.6*Ene.6.1 + Ene.7*Ene.7.1 + Ene.8*Ene.7.1",
@@ -211,7 +282,10 @@ def build_reference() -> pd.DataFrame:
     automatically ("calculated"), and for calculated indicators, records the
     formula in plain language (see FORMULA_DESC). IDs in EXCLUDED_IDS (Env.1,
     Saf.4) are skipped entirely — never written to the reference list at
-    all. The result is then written to Indicator_reference_CSR.xlsx by
+    all. CARBON_INDICATORS (Ene.12-15, Carb.1-5) are then appended on top —
+    they can't be read from the sheet like the rest, since they're absent
+    from the raw workbooks entirely (see that constant's docstring). The
+    result is then written to Indicator_reference_CSR.xlsx by
     export_reference."""
     wb_ref = openpyxl.load_workbook(_raw_path(REFERENCE_BU), data_only=False)
     ws_ref = wb_ref[REFERENCE_MONTH]
@@ -235,6 +309,7 @@ def build_reference() -> pd.DataFrame:
             "Source of data": ws_ref.cell(row=r, column=8).value,
             "Notes": REFERENCE_NOTES.get(idv, ""),
         })
+    rows.extend(CARBON_INDICATORS)
     return pd.DataFrame(rows)
 
 
@@ -378,8 +453,9 @@ def main():
     through this script."""
     reference_df = build_reference()
     entry_ids = set(reference_df[reference_df.Kind == "input"]["ID"])
+    calculated_count = (reference_df.Kind == "calculated").sum()
     print(f"Reference list: {len(reference_df)} indicators "
-          f"({len(entry_ids)} input / {len(CALC_IDS)} calculated)")
+          f"({len(entry_ids)} input / {calculated_count} calculated)")
 
     raw_df = build_raw_long(entry_ids)
     print(f"Raw data: {raw_df.shape[0]} rows across {raw_df.BU.nunique()} BUs")

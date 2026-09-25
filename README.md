@@ -58,6 +58,26 @@ Sales (decision of 23/09/2026):**
   count (the `holidays` package) for the country each BU reports from
   (`config.BU_COUNTRY`).
 
+**Carb.1-5 — CO2 emissions from energy consumption (added 25/09/2026):**
+these 9 indicators (Ene.12-15, the per-BU CO2 emission factors, and
+Carb.1-5, the emissions themselves) were part of the intended catalog from
+the start but got left out of the initial extraction — unlike every other
+indicator here, they're not read from the original raw workbooks at all
+(confirmed absent from all 6 files, every one of the 12 monthly tabs), so
+they're appended directly in `extract_reference_and_data.py`'s
+`CARBON_INDICATORS` instead. Still additive, so still fine to compute here:
+a quantity (energy consumed) times a factor sums correctly to a group
+total, unlike a ratio.
+- `Carb.1 = Ene.1 * Ene.12` (electricity), `Carb.2 = Ene.5 * Ene.13`
+  (natural gas), `Carb.3 = Ene.7 * Ene.14` (fuel), `Carb.4 = Ene.6 * Ene.15`
+  (LPG), `Carb.5 = Carb.1 + Carb.2 + Carb.3 + Carb.4` (total).
+- Ene.12-15 are per-BU CO2 emission factors, from `config.py`
+  (`ELECTRICITY_EMISSION_FACTOR`, `NATURAL_GAS_EMISSION_FACTOR`,
+  `FUEL_EMISSION_FACTOR`, `LPG_EMISSION_FACTOR`) — electricity genuinely
+  varies by country (grid mix), the other 3 happen to be identical across
+  BUs today but are still a dict per BU, same reasoning as the conversion
+  factors above.
+
 ## The pipeline
 
 Folders used by the pipeline are deliberately **not inside this
@@ -233,7 +253,8 @@ what gets tracked. Each row is one indicator, with:
   anywhere in this pipeline any longer.
 
 39 indicators originally; 37 remain after Env.1 and Saf.4 were excluded
-(23/09/2026).
+(23/09/2026), plus 9 more appended on top (25/09/2026 — Ene.12-15 and
+Carb.1-5, see above): 46 in total.
 
 Add, edit, or remove a row here and every script picks it up automatically
 on its next run — nothing else to change.
@@ -289,6 +310,12 @@ GitHub Actions (see `.github/workflows/tests.yml`).
 - `scripts/migrate_2026_09_reclassify_conversion_factors.py` — same idea,
   for the Saf.4 (FTE) exclusion and the Ene.6.1/Ene.7.1/Saf.4.1
   reclassification above. Already run once on the real files.
+- `scripts/migrate_2026_09_add_carbon_indicators.py` — one-time cleanup for
+  the 25/09/2026 decision above: regenerates
+  `Indicator_reference_CSR.xlsx` so it includes the 9 carbon/emission-factor
+  indicators (Ene.12-15, Carb.1-5) that were omitted from the initial
+  extraction (backed up first). No change needed to `Raw_data_CSR.xlsx` —
+  none of these 9 are ever hand-entered.
 - `scripts/nb_consolidate_sap_and_csr_data.py` — not run from here at all
   (a Fabric/Spark notebook, kept in this repo for reference and version
   history): recomputes the 7 ratio indicators and joins the real Sales/SAP
