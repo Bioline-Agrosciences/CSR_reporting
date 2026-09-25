@@ -192,10 +192,16 @@ def test_run_ignores_computed_id_absent_from_reference():
 
 
 # ---------------------------------------------------------------------------
-# build_completion_table — the per-BU/per-month % completion matrix, scoped
-# to CSR-referent-owned indicators only (never Safety/Finance/HR-owned ones,
+# build_completion_table — the per-BU/per-month % completion, long/tidy
+# format (one row per BU x Month, not one column per month), scoped to
+# CSR-referent-owned indicators only (never Safety/Finance/HR-owned ones,
 # even though those are also Kind == "input"), and to current_year only.
 # ---------------------------------------------------------------------------
+
+def _completion_pct(table, bu, month):
+    row = table[(table.BU == bu) & (table.Month == month)].iloc[0]
+    return row["completion_percent"]
+
 
 def test_build_completion_table_only_counts_csr_referent_owned_indicators():
     reference = pd.DataFrame([
@@ -214,8 +220,7 @@ def test_build_completion_table_only_counts_csr_referent_owned_indicators():
 
     table = engine.build_completion_table(raw, reference, current_year=2026)
 
-    jan = table[table.BU == "BAF"].iloc[0]
-    assert jan["January"] == "50%"
+    assert _completion_pct(table, "BAF", "January") == 50
 
 
 def test_build_completion_table_covers_all_12_months_future_included():
@@ -224,13 +229,12 @@ def test_build_completion_table_covers_all_12_months_future_included():
 
     table = engine.build_completion_table(raw, reference, current_year=2026)
 
-    row = table[table.BU == "BAF"].iloc[0]
-    assert row["January"] == "100%"
-    assert row["December"] == "0%"  # never due, never filled — still shown, not omitted
-    assert set(engine.MONTH_ORDER).issubset(set(table.columns))
+    assert _completion_pct(table, "BAF", "January") == 100
+    assert _completion_pct(table, "BAF", "December") == 0  # never due, never filled — still shown, not omitted
+    assert set(table[table.BU == "BAF"]["Month"]) == set(engine.MONTH_ORDER)
 
 
-def test_build_completion_table_has_one_row_per_bu_present_in_raw_data():
+def test_build_completion_table_has_one_row_per_bu_per_month():
     reference = pd.DataFrame([{"ID": "Wat.1", "Kind": "input", "Responsible": "CSR referent"}])
     raw = pd.DataFrame([
         {"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Wat.1", "Value": 100.0},
@@ -240,12 +244,13 @@ def test_build_completion_table_has_one_row_per_bu_present_in_raw_data():
     table = engine.build_completion_table(raw, reference, current_year=2026)
 
     assert set(table.BU) == {"BAF", "BFR"}
-    assert table[table.BU == "BFR"].iloc[0]["January"] == "0%"
+    assert len(table) == 2 * len(engine.MONTH_ORDER)
+    assert _completion_pct(table, "BFR", "January") == 0
 
 
 def test_build_completion_table_ignores_other_years():
     # A BU that only has 2025 data shouldn't pollute the 2026 completion
-    # matrix, and a 2025-only value must not count as "filled" for 2026.
+    # table, and a 2025-only value must not count as "filled" for 2026.
     reference = pd.DataFrame([{"ID": "Wat.1", "Kind": "input", "Responsible": "CSR referent"}])
     raw = pd.DataFrame([
         {"BU": "BAF", "Year": 2025, "Month": "January", "ID": "Wat.1", "Value": 100.0},
