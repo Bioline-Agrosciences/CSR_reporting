@@ -52,6 +52,19 @@ BIB, BUK, BUS. Results land in Fabric Delta tables read by Power BI.
      columns.
 4. **Ratios** — computed on the fly in the Power BI dashboard.
 
+**Daily run** — a Fabric data pipeline (folder `ATH_DataCoord /
+CSR_monthly_reporting` of the workspace) chains, each step only if the
+previous one succeeded: dataflow `df_CSR_dimensions` (Dim_Indicator,
+Dim_BU) → `nb_consolidate_csr_data` → `nb_consolidate_data_for_CSR_report`
+→ refresh of the semantic model `ms_csr_reporting`. It is scheduled every
+day at 10:30 (Paris time), after the sales finish updating (around 10:00),
+and takes about 5 minutes. Run history: the pipeline's run history or the
+Fabric Monitoring hub.
+
+In January, the daily run switches to the new year: run
+`nb_consolidate_csr_data` once more with the parameter `TARGET_YEAR` set to
+the previous year while referents finish entering December.
+
 The two notebooks are versioned in `scripts/` as `.ipynb` files exported
 from Fabric **without their outputs** (outputs contain real data). Fabric is
 not connected to this repo: after a change in Fabric, export the notebook
@@ -158,10 +171,13 @@ uv run scripts/generate_data_entry_file.py BAF BFR   # a selection
   default lakehouse to both notebooks, with the OneLake shortcut
   `Files/sp_csr_general` pointing to `Shared Documents/General` of the
   CSRreferents SharePoint site.
-- `holidays==0.105` installed for `nb_consolidate_csr_data` (`%pip` cell,
-  or a Fabric Environment when run from a Data Pipeline). Keep it the same
-  version as `uv.lock`: holiday dates change between versions, and with
-  them Saf.4.1.
+- A Fabric Environment attached to `nb_consolidate_csr_data`, with
+  `holidays==0.105` added under "External repositories" (it overrides the
+  0.48 built into Fabric; `%pip` is blocked in pipeline runs). Keep it the
+  same version as `uv.lock`: holiday dates change between versions, and
+  with them Saf.4.1.
+- The semantic model refresh activity of the pipeline uses a "Power BI
+  semantic model" connection under the owner's organizational account.
 - `nb_consolidate_data_for_CSR_report` reads the semantic model
   "Bioline Agrosciences sales - Copy" of the same workspace (`sempy`).
 

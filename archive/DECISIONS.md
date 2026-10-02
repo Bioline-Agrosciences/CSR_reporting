@@ -182,6 +182,24 @@ where it landed (`git show <commit>` for the details).
   bioline_utils (generic, not specific to this project); a test fails if a
   notebook still has outputs.
 
+## 02/10/2026 — Daily pipeline in Fabric
+
+- **One pipeline, scheduled daily at 10:30**, after the sales finish
+  updating in the commercial model (around 10:00): dataflow
+  `df_CSR_dimensions` (renamed from `df_consolidated_CSR_file`, which now
+  only holds Dim_Indicator and Dim_BU) → `nb_consolidate_csr_data` →
+  `nb_consolidate_data_for_CSR_report` → refresh of `ms_csr_reporting`,
+  each step only on success of the previous one. The model is refreshed by
+  the pipeline rather than by its own schedule (12:00), so the dashboard is
+  up to date as soon as the data is.
+- **Dataflows `df_extract_BlueKanGo` and `df_working_hours` removed**: the
+  consolidation notebook reads the BlueKanGo export and the Working Hours
+  file directly from SharePoint.
+- **`holidays` installed through a Fabric Environment**, not `%pip`: `%pip`
+  is blocked when a pipeline runs the notebook (the first pipeline run
+  failed on it). The Environment adds `holidays==0.105` from PyPI, which
+  overrides the 0.48 built into Fabric.
+
 ## Open points
 
 - BU countries BIB -> ES and Viridaxis -> BE (public holidays for Saf.4.1)

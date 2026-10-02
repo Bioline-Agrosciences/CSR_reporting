@@ -43,8 +43,13 @@ contiennent des données réelles : ventes, valeurs RSE).
 - **Clé (BU, Year, Month, ID)** partout.
 - **Facteurs de conversion/émission** : dans `input_data/CSR_parameters.xlsx`
   (par BU et par année), jamais codés en dur.
-- **`holidays` figé à 0.105** dans Fabric, identique à `uv.lock` : les deux
-  se mettent à jour ensemble, sinon Saf.4.1 diverge.
+- **`holidays` figé à 0.105** dans l'Environment Fabric du notebook de
+  consolidation, identique à `uv.lock` : les deux se mettent à jour
+  ensemble, sinon Saf.4.1 diverge. Pas de `%pip` dans les notebooks : il est
+  bloqué quand le pipeline les lance.
+- **Pipeline quotidien à 10:30** (après la mise à jour des ventes vers 10h) :
+  df_CSR_dimensions → nb_consolidate_csr_data →
+  nb_consolidate_data_for_CSR_report → actualisation de ms_csr_reporting.
 - **Aucune donnée réelle dans git** : tout est sur SharePoint « CSR
   referents » / `General/` ; le dépôt est cloné hors OneDrive.
 - **Documentation** : les en-têtes de fichiers et le README décrivent
