@@ -365,10 +365,11 @@ GitHub Actions (see `.github/workflows/tests.yml`).
   `CSR_parameters.xlsx` live from SharePoint through a OneLake shortcut
   (`LH_CSR_Reporting/Files/sp_csr_general` = `Shared Documents/General` of
   the CSRreferents site), and writes Delta tables (`CSR_raw_data`,
-  `CSR_indicators_report`, `CSR_completion_tracking`, `CSR_parameters`,
-  `CSR_anomalies`). Output tables are suffixed `_nb` during the double run
-  so they never overwrite the Dataflow's; its last cell compares against
-  `Consolidated_results_CSR.xlsx`.
+  `CSR_indicators_report`, `CSR_completion_report`, `CSR_parameters`,
+  `CSR_anomalies`). Validated on 02/10/2026 against the local pipeline
+  (2808 values, the only differences being entries made after the last
+  local run): it replaces steps 3-5 once `CSR_indicators_report` and
+  `CSR_completion_report` are removed from the Fabric Dataflow.
 - `scripts/nb_consolidate_sap_and_csr_data.py` — not run from here at all
   (a Fabric/Spark notebook, kept in this repo for reference and version
   history): recomputes the 7 ratio indicators and joins the real Sales/SAP
