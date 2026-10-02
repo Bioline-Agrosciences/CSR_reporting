@@ -1,48 +1,36 @@
 # Fabric notebook: nb_consolidate_csr_data
 # Workspace: BM_F_D - SAP-B1 / Lakehouse: LH_CSR_Reporting
 #
-# Portage dans Fabric de la consolidation faite jusqu'ici en local par
-# integrate_data_entry.py + integrate_safety_data.py + csr_calc_engine.py
-# (+ la partie "détection" de consolidation_report.py, sans l'envoi du mail).
-# Même logique, mêmes formules, copiées telles quelles depuis ces scripts —
-# seules les entrées/sorties changent :
-#   - Lecture : les fichiers SharePoint via le raccourci OneLake
-#     Files/sp_csr_general (= Shared Documents/General du site
-#     https://biolineagrosciencesgroup.sharepoint.com/sites/CSRreferents),
-#     donc toujours la dernière version enregistrée, sans aucune copie.
-#   - Raw_data_CSR.xlsx -> table Delta CSR_raw_data (même clé
-#     BU/Year/Month/ID, même upsert). Amorcée une seule fois depuis le
-#     Raw_data_CSR.xlsx local, pour repartir exactement du même état que le
-#     pipeline local (historique 2026 issu des Archives compris).
-#   - Consolidated_results_CSR.xlsx -> tables Delta CSR_indicators_report et
-#     CSR_completion_report.
-#   - Rapport d'anomalies -> table CSR_anomalies (append, une colonne
-#     Run_date — garde l'historique comme les fichiers horodatés en local).
-#     L'email Outlook ne peut pas tourner dans Fabric (pas d'Outlook
-#     desktop) : à envoyer depuis le Data Pipeline (activité Office 365
-#     Outlook) ou via Activator, à partir de cette table.
+# Consolidation mensuelle des données RSE des 6 BU + Safety.
 #
-# Ce notebook ne calcule toujours que des SOMMES, jamais de ratio (décision
-# du 23/09/2026, voir csr_calc_engine.py) — les 7 ratios + Env.1 restent
-# faits ensuite par nb_consolidate_sap_and_csr_data, à enchaîner juste après
-# celui-ci dans le même pipeline.
+# Lit, via le raccourci OneLake Files/sp_csr_general (= Shared
+# Documents/General du site SharePoint CSRreferents, toujours la dernière
+# version enregistrée) :
+#   - les fichiers de saisie des référents (<BU>_data_entry_CSR_<année>.xlsm,
+#     produits par scripts/generate_data_entry_file.py) ;
+#   - Working Hours <année>.xlsx et le dernier export BlueKanGo des accidents
+#     (indicateurs Safety) ;
+#   - input_data/Indicator_reference_CSR.xlsx (liste des indicateurs) et
+#     input_data/CSR_parameters.xlsx (facteurs de conversion et d'émission,
+#     un par BU et par année).
 #
-# Validé le 02/10/2026 en double run contre le pipeline local (2808 valeurs,
-# seuls écarts = saisies postérieures au dernier run local), puis basculé :
-# ce notebook est désormais LA consolidation — les scripts locaux
-# integrate_*.py / csr_calc_engine.py ne sont plus lancés (seul
-# generate_data_entry_file.py reste local). CSR_indicators_report et
-# CSR_completion_report ne viennent plus du Dataflow.
+# Écrit les tables Delta :
+#   - CSR_raw_data : valeurs saisies, clé (BU, Year, Month, ID), mise à jour
+#     par upsert à chaque run ;
+#   - CSR_indicators_report : tous les indicateurs, saisis + calculés ;
+#   - CSR_completion_report : % de complétion par BU et par mois ;
+#   - CSR_parameters : copie de CSR_parameters.xlsx, pour Power BI ;
+#   - CSR_anomalies : contrôles qualité (valeurs corrigées ou illisibles,
+#     manquantes, variations > 20 %, facteurs manquants), en append avec
+#     Run_date. L'email d'alerte s'envoie depuis le Data Pipeline ou
+#     Activator, à partir de cette table.
 #
-# Facteurs de conversion et d'émission : lus dans input_data/CSR_parameters.xlsx
-# (un facteur par BU et par année), le même fichier que les scripts locaux —
-# rien à recopier ici quand un facteur change. Recopiés en table
-# CSR_parameters pour Power BI.
+# Ne calcule que des SOMMES, jamais de ratio : un ratio ne s'additionne pas
+# entre BU. Les 7 ratios et Env.1 (ventes SAP) sont calculés ensuite par
+# nb_consolidate_sap_and_csr_data, à enchaîner juste après dans le pipeline.
 #
-# Les constantes restantes de la cellule 2 (BU_COUNTRY, BU_NAME_MAP, seuil)
-# et les fonctions des cellules 3 à 6 sont copiées de scripts/config.py et
-# des scripts locaux : une modification de logique se fait ici en priorité,
-# et se reporte dans les scripts locaux s'ils doivent resservir.
+# Ce fichier est la source du notebook Fabric : le notebook est mis à jour
+# en recopiant les cellules ("Cell N") à la main.
 #
 # Lakehouse par défaut à attacher : LH_CSR_Reporting.
 
@@ -52,11 +40,10 @@
 # --------------------------------------------------------------------------
 # %pip install holidays==0.105
 #
-# Version FIGÉE, identique à celle de uv.lock côté local : les fêtes à date
-# estimée (ex. Idd-ul-Fitr au Kenya) changent d'une version à l'autre, et
-# donc Saf.4.1 (jours ouvrés) avec — vu le 02/10/2026 : BAF mars 2026 = 21
-# jours en 0.105, 22 avec la version installée par défaut dans Fabric. À
-# mettre à jour EN MÊME TEMPS que uv.lock, jamais l'un sans l'autre.
+# Version FIGÉE : les fêtes à date estimée (ex. Idd-ul-Fitr au Kenya)
+# changent d'une version à l'autre, et donc Saf.4.1 (jours ouvrés) avec
+# (ex. BAF mars 2026 : 21 jours en 0.105, 22 avec la version par défaut de
+# Fabric). Changer de version recalcule l'historique publié.
 #
 # En exécution planifiée (Data Pipeline), %pip dans le notebook est bloqué
 # par défaut — préférer alors un Environment Fabric avec "holidays==0.105"
@@ -69,10 +56,10 @@
 SOURCE_ROOT = "/lakehouse/default/Files/sp_csr_general"
 TARGET_YEAR = None      # None = année en cours. Ex. 2026 en janvier 2027 pour finir décembre.
 CURRENT_MONTH = None    # None = mois en cours (ou décembre si TARGET_YEAR est une année passée)
-RESEED_RAW = False      # True = repartir du Raw_data_CSR.xlsx local (écrase CSR_raw_data)
+RESEED_RAW = False      # True = repartir de input_data/Raw_data_CSR.xlsx (historique au 02/10/2026, écrase CSR_raw_data)
 
 # --------------------------------------------------------------------------
-# Cell 2 — imports, chemins, constantes (copiées de scripts/config.py)
+# Cell 2 — imports, chemins, constantes
 # --------------------------------------------------------------------------
 import calendar
 import glob
@@ -97,9 +84,8 @@ MONTHLY_REPORTING_DIR = f"{SOURCE_ROOT}/Monthly reporting"
 DATA_ENTRY_DIR = MONTHLY_REPORTING_DIR
 ACCIDENTS_DIR = f"{MONTHLY_REPORTING_DIR}/extract_bluekango"
 ACCIDENTS_FILE_PATTERN = "Accidents_du_travail_Bioline_*.xlsx"
-# En local le nom est figé ("Working Hours 2026.xlsx" dans config.py) ; ici
-# il suit TARGET_YEAR, donc rien à modifier en janvier tant que le nommage
-# reste "Working Hours <année>.xlsx".
+# Suit TARGET_YEAR : rien à modifier en janvier tant que le fichier s'appelle
+# "Working Hours <année>.xlsx".
 WORKING_HOURS_FILE = f"{SOURCE_ROOT}/Working Hours {TARGET_YEAR}.xlsx"
 PROJECT_DIR = f"{SOURCE_ROOT}/Reporting_Automation/monthly_reporting"
 REFERENCE_FILE = f"{PROJECT_DIR}/input_data/Indicator_reference_CSR.xlsx"
@@ -115,15 +101,14 @@ BU_LIST = ["Viridaxis", "BAF", "BFR", "BIB", "BUK", "BUS"]
 BU_COUNTRY = {"Viridaxis": "BE", "BAF": "KE", "BFR": "FR", "BIB": "ES", "BUK": "GB", "BUS": "US"}
 
 # Facteurs de conversion et d'émission : PAS ici, mais dans
-# input_data/CSR_parameters.xlsx (Parameter, BU, Year, Value, Unit, Source),
-# le même fichier que lit le pipeline local — voir la cellule 5 et
-# scripts/csr_parameters.py.
+# input_data/CSR_parameters.xlsx (Parameter, BU, Year, Value, Unit, Source)
+# — voir la cellule 5.
 PARAMETERS_FILE = f"{PROJECT_DIR}/input_data/CSR_parameters.xlsx"
 PARAMETERS_TABLE = "CSR_parameters"
 
 VARIATION_THRESHOLD = 0.20
 
-# Libellé "Business Unit" de BlueKanGo -> code BU interne (integrate_safety_data.py).
+# Libellé "Business Unit" de BlueKanGo -> code BU interne.
 BU_NAME_MAP = {
     "Bioline Africa": "BAF",
     "Bioline US": "BUS",
@@ -136,8 +121,11 @@ BU_NAME_MAP = {
 RAW_COLS = ["BU", "Year", "Month", "ID", "Value", "Comment", "Data quality note"]
 
 # --------------------------------------------------------------------------
-# Cell 3 — lecture des fichiers de saisie des 6 BU (integrate_data_entry.py)
+# Cell 3 — lecture des fichiers de saisie des 6 BU
 # --------------------------------------------------------------------------
+# Les valeurs sont nettoyées sans jamais deviner : virgule décimale -> point,
+# texte numérique -> nombre (corrections tracées dans "Data quality note"),
+# texte illisible -> vide + note à corriger dans le fichier de saisie.
 import re
 
 FRENCH_DECIMAL_RE = re.compile(r"^\s*-?\d+,\d+\s*$")
@@ -189,15 +177,18 @@ def read_data_entry_file(bu: str, year: int) -> pd.DataFrame:
     return pd.DataFrame(records, columns=RAW_COLS)
 
 # --------------------------------------------------------------------------
-# Cell 4 — Safety : Working Hours + BlueKanGo (integrate_safety_data.py)
+# Cell 4 — Safety : Working Hours + BlueKanGo
 # --------------------------------------------------------------------------
+# Saf.4.2 (heures travaillées) vient de Working Hours ; Saf.1, Saf.2 (sans
+# arrêt), Saf.3 (avec arrêt) et Saf.5 (jours perdus) de l'export BlueKanGo.
+# Les intérimaires sont exclus partout. Un mois présent dans Working Hours
+# sans accident vaut 0 (pas "manquant") pour Saf.2/Saf.3/Saf.5.
 
 
 def _find_latest_accidents_file() -> str:
     """Le dernier export d'après l'horodatage DANS LE NOM
     (..._20260921-165507.xlsx, trié lexicographiquement) — plus fiable à
-    travers un raccourci OneLake que la date de modification utilisée en
-    local."""
+    travers un raccourci OneLake que la date de modification."""
     candidates = sorted(glob.glob(f"{ACCIDENTS_DIR}/{ACCIDENTS_FILE_PATTERN}"), key=os.path.basename)
     if not candidates:
         raise FileNotFoundError(f"No BlueKanGo export found matching {ACCIDENTS_FILE_PATTERN!r} in {ACCIDENTS_DIR}/")
@@ -285,8 +276,10 @@ def read_accidents(events: pd.DataFrame, target_year: int) -> pd.DataFrame:
 
 
 def compute_days_without_accident(events: pd.DataFrame, working_hours_df: pd.DataFrame) -> pd.DataFrame:
-    """Saf.1 : jours entre la fin du mois et le dernier accident (tout type,
-    toute année) de la BU — voir integrate_safety_data.py pour le détail."""
+    """Saf.1 : jours entre la fin du mois et le dernier accident de la BU
+    (avec ou sans arrêt, toutes années confondues : le compteur ne repart
+    pas à zéro au 1er janvier). Rien pour une BU qui n'a jamais eu
+    d'accident."""
     active = working_hours_df[["BU", "Month", "Year"]].drop_duplicates()
     records = []
     for row in active.itertuples(index=False):
@@ -317,8 +310,14 @@ def fill_zero_accident_months(accidents_df: pd.DataFrame, working_hours_df: pd.D
     return pd.concat([accidents_df, pd.DataFrame(filler, columns=RAW_COLS)], ignore_index=True)
 
 # --------------------------------------------------------------------------
-# Cell 5 — moteur de calcul (csr_calc_engine.py) — SOMMES uniquement
+# Cell 5 — moteur de calcul — SOMMES uniquement
 # --------------------------------------------------------------------------
+# Trois sortes d'indicateurs calculés (Kind = "calculated" dans la liste) :
+#   - FORMULAS : sommes de valeurs saisies. Nouvel indicateur additif = une
+#     ligne dans la liste + une entrée ici, jamais une division ;
+#   - CONTEXTUAL_VALUES : valeurs qui ne dépendent que de la BU et de la
+#     période (facteurs de CSR_parameters.xlsx, jours ouvrés Saf.4.1) ;
+#   - les 7 ratios : pas calculés ici (voir l'en-tête).
 
 
 def z(x):
@@ -348,9 +347,10 @@ def working_days_in_month(country_code: str, year: int, month: int) -> int:
     )
 
 
-# --- Paramètres (scripts/csr_parameters.py) : un facteur par (BU, Year),
-# repli sur l'année antérieure la plus récente, jamais sur une année
-# postérieure, signalé dans les anomalies.
+# --- Paramètres : un facteur par (BU, Year). Sans ligne pour l'année, repli
+# sur l'année antérieure la plus récente (jamais une année postérieure),
+# signalé dans CSR_anomalies. Nouvelle année = AJOUTER des lignes, ne jamais
+# modifier celles de l'année précédente (sinon l'historique publié change).
 PARAMETER_COLS = ["Parameter", "BU", "Year", "Value", "Unit", "Source"]
 PARAMETER_FOR_ID = {
     "Ene.6.1": "LPG_CONVERSION_FACTOR",
@@ -491,7 +491,7 @@ def build_completion_table(raw: pd.DataFrame, reference: pd.DataFrame, current_y
     return pd.DataFrame(rows)
 
 # --------------------------------------------------------------------------
-# Cell 6 — détection des anomalies (consolidation_report.py, sans l'email)
+# Cell 6 — détection des anomalies
 # --------------------------------------------------------------------------
 
 
@@ -539,7 +539,7 @@ def find_large_variations(consolidated: pd.DataFrame) -> pd.DataFrame:
 
 def build_anomalies_table(raw: pd.DataFrame, consolidated: pd.DataFrame, reference: pd.DataFrame,
                           current_year: int, current_month: str, parameters: pd.DataFrame) -> pd.DataFrame:
-    """Les 4 contrôles du rapport local, empilés dans UNE table longue
+    """Les 4 contrôles, empilés dans UNE table longue
     (Check, BU, Year, Month, ID, Value, Detail) — c'est elle que le pipeline
     lira pour composer le mail (compte par BU = un simple groupby)."""
     input_ids = set(reference[reference.Kind == "input"]["ID"])
@@ -575,8 +575,8 @@ def build_anomalies_table(raw: pd.DataFrame, consolidated: pd.DataFrame, referen
 # --------------------------------------------------------------------------
 # Delta refuse les espaces dans les noms de colonnes : "Data quality note"
 # devient "Data_quality_note" dans la table, et redevient "Data quality note"
-# à la relecture, pour que les fonctions copiées ci-dessus restent
-# identiques aux scripts locaux.
+# à la relecture, pour que les fonctions ci-dessus gardent le même nom de
+# colonne que les fichiers Excel.
 RAW_SCHEMA = StructType([
     StructField("BU", StringType()), StructField("Year", IntegerType()),
     StructField("Month", StringType()), StructField("ID", StringType()),
@@ -640,9 +640,8 @@ def load_raw() -> pd.DataFrame:
 
 
 def upsert(existing: pd.DataFrame, new: pd.DataFrame) -> pd.DataFrame:
-    """Même upsert que integrate_data_entry.py / integrate_safety_data.py :
-    clé (BU, Year, Month, ID), la nouvelle ligne remplace l'ancienne, tout le
-    reste (dont les autres années) est conservé."""
+    """Clé (BU, Year, Month, ID) : la nouvelle ligne remplace l'ancienne,
+    tout le reste (dont les autres années) est conservé."""
     combined = {(r["BU"], int(r["Year"]), r["Month"], r["ID"]): r for r in existing.to_dict("records")}
     for r in new.to_dict("records"):
         combined[(r["BU"], int(r["Year"]), r["Month"], r["ID"])] = r
@@ -659,7 +658,7 @@ parameters = pd.read_excel(PARAMETERS_FILE, sheet_name="Parameters")
 validate_parameters(parameters)
 raw = load_raw()
 
-# 1. Fichiers de saisie des référents (integrate_data_entry.py)
+# 1. Fichiers de saisie des référents
 entries = []
 for bu in BU_LIST:
     try:
@@ -674,7 +673,7 @@ for bu in BU_LIST:
 if entries:
     raw = upsert(raw, pd.concat(entries, ignore_index=True))
 
-# 2. Safety (integrate_safety_data.py)
+# 2. Safety
 working_hours_df = read_working_hours(WORKING_HOURS_FILE, TARGET_YEAR)
 accidents_path = _find_latest_accidents_file()
 events = _read_accident_events(accidents_path)
@@ -689,7 +688,7 @@ raw = upsert(raw, pd.concat([working_hours_df, accidents_df, saf1_df], ignore_in
 
 write_table(raw, RAW_TABLE, RAW_SCHEMA)
 
-# 3. Calcul (csr_calc_engine.py)
+# 3. Calcul
 consolidated = run(reference, raw, parameters)
 completion = build_completion_table(raw, reference, TARGET_YEAR)
 completion.insert(1, "Year", TARGET_YEAR)
