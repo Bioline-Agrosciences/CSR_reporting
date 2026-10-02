@@ -1,43 +1,29 @@
 """
-Generates, for one (or all) BU, the MONTHLY DATA ENTRY file for the CSR
-referent — not to be confused with Raw_data_CSR.xlsx, which is the
-"database" format (one row per month x indicator, all months stacked) used
-by the calculation engine, unreadable for someone who just needs to fill in
-the current month.
+Generates each BU's data entry file for the CSR referent:
+config.DATA_ENTRY_DIR/<BU>_data_entry_CSR_<year>.xlsm (one file per BU and
+per year), written straight into the SharePoint folder the referents
+already have access to. The Fabric notebook nb_consolidate_csr_data reads
+these files back.
 
-Written straight to config.DATA_ENTRY_DIR, the shared SharePoint folder
-(General/Monthly reporting) every CSR referent already has access to — not
-emailed, not copied anywhere, nothing to distribute by hand.
+The workbook contains:
+  - "Instructions" for the referent;
+  - "Tracking": % completion per month;
+  - one tab per month, listing only the indicators of the reference list
+    with Kind = "input" and Responsible = "CSR referent". Only "Value of the
+    month" and "Comment" are editable; values already known are pre-filled;
+  - "Annual summary": all months side by side (Excel formulas, so it updates
+    as the referent types), with month-over-month variations above
+    config.VARIATION_THRESHOLD in red.
 
-This file reuses the logic of the old workbook (one tab per month), but:
-  - only lists the "input" indicators from the reference list (never the
-    calculated ones, never a formula to break);
-  - is automatically regenerated from the reference list: adding or removing
-    an indicator in Indicator_reference_CSR.xlsx is enough, it appears (or
-    disappears) here on the next run, for all 6 BUs at once;
-  - pre-fills already-known values (from input_data/Raw_data_CSR.xlsx) so
-    the referent sees the history and corrects it if needed, instead of
-    re-entering an empty workbook every month;
-  - colors the current month's tab so the referent knows where to enter
-    data. This workbook is an .xlsm built on top of TEMPLATE_PATH
-    (templates/data_entry_template.xlsm, in the repo), which carries a macro
-    (Workbook_Open): it recolors the current month's tab and recalculates
-    "Tracking" EVERY TIME the file is opened in Excel, based on today's
-    date — so even if the referent hasn't had a regenerated file for
-    months, the orange tab and the completion rate stay correct without
-    this script being run again;
-  - adds a "Tracking" tab (% completion per month) that shows at a glance
-    who's behind, without having to open every tab;
-  - adds a final "Annual summary" tab that lays out all months side by side
-    for each indicator, with large month-over-month variations highlighted
-    in red. This is not a snapshot frozen at generation time: every cell is
-    an Excel formula pointing to the corresponding month's value, so this
-    table updates itself as soon as the referent types a value into a
-    monthly tab — no need to regenerate the file to see it move.
+It is built on templates/data_entry_template.xlsm, whose Workbook_Open macro
+recolors the current month's tab and recalculates "Tracking" every time the
+file is opened, so the file stays correct for months without regenerating
+it. Regenerate it when the reference list changes (an indicator added or
+removed appears/disappears on the next run, for all BUs); a new year's file
+starts automatically the first time it runs in a new year.
 
-An "ID" column (first column, visible so the referent can refer to it)
-allows entries to be reliably re-integrated (see integrate_data_entry.py),
-even if rows get moved around.
+The "ID" column (first column) is what the notebook uses to read the values
+back, so rows can be moved around without breaking anything.
 
 Usage
 -----
@@ -79,9 +65,9 @@ VARIATION_FILL = "FFF4C7C3"
 TEMPLATE_PATH = config.TEMPLATE_DIR / "data_entry_template.xlsm"
 
 # Context columns shown to the referent (read-only), in this order. "ID" is
-# added on top, as the first column, visible — lets the referent identify
-# the indicator unambiguously (and allows entries to be reliably
-# re-integrated, see integrate_data_entry.py).
+# added on top, as the first column. nb_consolidate_csr_data (Cell 3) relies
+# on this layout to find "Value of the month" and "Comment": update it too if
+# this list changes.
 DISPLAY_COLS = ["Topic", "KPI", "Unit", "Definition", "Calculation detail", "Source of data"]
 
 # Column width (in characters) by context column name — lets "Calculation
@@ -114,8 +100,10 @@ def load_data_entry_reference() -> pd.DataFrame:
 
 
 def load_consolidated() -> pd.DataFrame:
-    """input_data/Raw_data_CSR.xlsx — a single file, all BUs AND all years
-    combined (see extract_reference_and_data.py for the rationale)."""
+    """input_data/Raw_data_CSR.xlsx — all BUs and all years, one row per
+    (BU, Year, Month, ID). No longer updated since the consolidation moved
+    to Fabric (the live data is the CSR_raw_data Delta table): it holds the
+    history up to 02/10/2026."""
     path = config.INPUT_DIR / "Raw_data_CSR.xlsx"
     if not path.exists():
         return pd.DataFrame(columns=["BU", "Year", "Month", "ID", "Value", "Comment", "Data quality note"])
@@ -126,19 +114,15 @@ def load_existing_values(bu: str, year: int, consolidated: pd.DataFrame) -> dict
     """{(Month, ID): (Value, Comment)} already known for this BU, for THIS
     YEAR ONLY, merged from TWO sources:
 
-    1. input_data/Raw_data_CSR.xlsx — the latest entries already integrated
-       (via integrate_data_entry.py), filtered on this BU and this year (a
-       prior year's August must never pre-fill this year's August tab).
+    1. input_data/Raw_data_CSR.xlsx (see load_consolidated), filtered on
+       this BU and this year (a prior year's August must never pre-fill this
+       year's August tab).
     2. config.DATA_ENTRY_DIR/<BU>_data_entry_CSR_<year>.xlsm — the CURRENT
        data entry file for this year, if it already exists.
 
-    Without source 2, regenerating this file (e.g. because a new indicator
-    was just added to the reference list) would overwrite anything a
-    referent had already typed into their file, as long as
-    integrate_data_entry.py hasn't run on it yet — a real data loss. In case
-    of conflict, the value from the data entry file wins (it's the most
-    recent). Values are copied as-is (even text that hasn't been cleaned
-    yet, e.g. "56,7"): cleaning happens at integration time, not here.
+    Source 2 wins in case of conflict: regenerating the file must never
+    erase what a referent has already typed. Values are copied as-is (even
+    uncleaned text such as "56,7"): cleaning happens in the notebook.
     """
     values: dict = {}
 
@@ -387,19 +371,13 @@ def write_annual_summary_sheet(wb, entry_records: list):
 
 def generate_for_bu(bu: str, data_entry_reference: pd.DataFrame, consolidated: pd.DataFrame,
                      year: int = None):
-    """Builds and saves the complete data entry file for a BU
-    (config.DATA_ENTRY_DIR/<BU>_data_entry_CSR_<year>.xlsm — one file PER
-    YEAR, added 22/09/2026 so a new year never collides with, or gets
-    confused for, an old one still open somewhere): gathers already-known
-    values for that year, determines the current month, then assembles all
-    the tabs in order (Instructions, Tracking, one tab per month, Annual
-    summary) before saving the file and printing a summary (indicator count,
-    completion rate for the current month).
+    """Builds and saves config.DATA_ENTRY_DIR/<BU>_data_entry_CSR_<year>.xlsm:
+    gathers already-known values for that year, then assembles the tabs in
+    order (Instructions, Tracking, one tab per month, Annual summary) and
+    prints a summary (indicator count, completion of the current month).
 
     Built on top of TEMPLATE_PATH (keep_vba=True) rather than an empty
-    workbook, so the macro (recoloring the current month's tab + recalculating
-    "Tracking" on open) is always present in the file the referent opens,
-    even if they never regenerate their file."""
+    workbook, so the Workbook_Open macro is always present in the file."""
     year = year or date.today().year
     entry_records = data_entry_reference.to_dict("records")
     existing = load_existing_values(bu, year, consolidated)
@@ -424,16 +402,9 @@ def generate_for_bu(bu: str, data_entry_reference: pd.DataFrame, consolidated: p
 
 
 def main():
-    """Entry point: generates the monthly data entry file for one or more BUs
-    (all of them by default), for the current year, from the indicator
-    reference list and the latest known data for that year (already
-    integrated + entries not yet integrated). Run again every time an
-    up-to-date file needs to be sent to the CSR referents (e.g. after adding
-    an indicator to the reference list, or at the start of a new month) — and
-    it naturally starts a fresh <BU>_data_entry_CSR_<year>.xlsm the first
-    time it's run in a new year, with nothing pre-filled from the year
-    before."""
-    requested = sys.argv[1:] or list(config.RAW_FILES.keys())
+    """Entry point: generates the data entry file of the current year for the
+    BUs given on the command line (all of them by default)."""
+    requested = sys.argv[1:] or config.BU_LIST
     year = date.today().year
     data_entry_reference = load_data_entry_reference()
     consolidated = load_consolidated()

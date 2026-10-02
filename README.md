@@ -1,204 +1,127 @@
 # Monthly CSR Reporting — Bioline Agrosciences
 
-Automates the monthly collection and consolidation of CSR data (energy,
-water, waste, safety, workforce...) across Bioline's 6 business units (BUs):
-Viridaxis, BAF, BFR, BIB, BUK, BUS.
+Collects and consolidates the monthly CSR indicators (energy, water, waste,
+refrigerants, safety...) of Bioline's 6 business units: Viridaxis, BAF, BFR,
+BIB, BUK, BUS. Results land in Fabric Delta tables read by Power BI.
 
-## In plain language
-
-Every month, each BU's CSR referent needs to report a set of indicators
-(electricity used, water consumed, accidents, refrigerant leaks, etc.).
-Historically this meant sending around a heavy 12-tab Excel workbook that
-mixed indicators to fill in with indicators calculated by formulas — easy to
-break, hard to keep in sync across 6 BUs, and hard to tell who still owed
-data for a given month.
-
-This project replaces that with:
-
-- **One shared list of indicators** (kept in one file, not duplicated 6
-  times) that says, for each indicator, whether a referent fills it in by
-  hand or whether it's calculated automatically, and who is responsible for it.
-- **One clean, small file per BU per month** for the referent to fill in —
-  only the indicators that are actually theirs to enter, nothing they could
-  accidentally break.
-- **One calculation engine** that recomputes every additive calculated
-  indicator (totals) from the entered data — so a formula never needs to be
-  copied into a spreadsheet cell by hand again.
-
-Not every indicator is owned by a CSR referent, though: Safety (accidents,
-hours worked) is owned by the H&S manager / HR, and is integrated
-separately, straight from the systems that already own it (BlueKanGo, the
-Working Hours file) — see below.
-
-**This local pipeline computes sums only, never ratios, and never touches
-Sales (decision of 23/09/2026):**
-- Ratio/intensity indicators (Wat.2, Ene.10, Ene.11, Was.3, Was.4, Saf.6,
-  Saf.7) are NOT computed here. A sum rolls up correctly to a group total
-  (all 6 BUs' total energy = the sum of each BU's total energy), a ratio
-  does not (averaging or summing 6 BUs' "% renewable energy" produces a
-  number that looks plausible but is mathematically meaningless — the
-  classic "average of averages" mistake). These indicators still exist in
-  the reference list, still nobody types them in by hand, they're just
-  computed downstream instead (Power BI/Fabric), from the same raw
-  components, at whatever level of aggregation is actually meaningful.
-- Env.1 ("Sales") is excluded entirely — not read, not stored, not carried
-  over from history. This pipeline (CSR referents + BlueKanGo + Working
-  Hours) never has real sales/SAP figures to begin with; that figure is
-  joined downstream, in Fabric, alongside the ratios above.
-- Saf.4 ("FTE" / headcount) is likewise excluded entirely — no longer
-  tracked or used anywhere in this pipeline.
-- Ene.6.1, Ene.7.1 (LPG/Fuel conversion factors) and Saf.4.1 (working days
-  in the month) used to be hand-typed every month, but nothing was actually
-  keeping them up to date. They're now computed fresh on every run instead
-  (`csr_calc_engine.py`'s `CONTEXTUAL_VALUES`): the two conversion factors
-  come from `input_data/CSR_parameters.xlsx` (`LPG_CONVERSION_FACTOR`,
-  `FUEL_CONVERSION_FACTOR` — one value per BU and per year, see
-  "Emission and conversion factors" below), and Saf.4.1 from a public-holiday-aware calendar
-  count (the `holidays` package) for the country each BU reports from
-  (`config.BU_COUNTRY`).
-
-**Carb.1-5 — CO2 emissions from energy consumption (added 25/09/2026):**
-these 9 indicators (Ene.12-15, the per-BU CO2 emission factors, and
-Carb.1-5, the emissions themselves) were part of the intended catalog from
-the start but got left out of the initial extraction — unlike every other
-indicator here, they're not read from the original raw workbooks at all
-(confirmed absent from all 6 files, every one of the 12 monthly tabs), so
-they're appended directly in `extract_reference_and_data.py`'s
-`CARBON_INDICATORS` instead. Still additive, so still fine to compute here:
-a quantity (energy consumed) times a factor sums correctly to a group
-total, unlike a ratio.
-- `Carb.1 = Ene.1 * Ene.12` (electricity), `Carb.2 = Ene.5 * Ene.13`
-  (natural gas), `Carb.3 = Ene.7 * Ene.14` (fuel), `Carb.4 = Ene.6 * Ene.15`
-  (LPG), `Carb.5 = Carb.1 + Carb.2 + Carb.3 + Carb.4` (total).
-- Ene.12-15 are per-BU CO2 emission factors, from
-  `input_data/CSR_parameters.xlsx` (`ELECTRICITY_EMISSION_FACTOR`,
-  `NATURAL_GAS_EMISSION_FACTOR`, `FUEL_EMISSION_FACTOR`,
-  `LPG_EMISSION_FACTOR`) — electricity genuinely varies by country (grid
-  mix), the other 3 happen to be identical across BUs today but still have
-  one row per BU.
-
-**Emission and conversion factors — `input_data/CSR_parameters.xlsx`
-(02/10/2026):** these 6 factors used to be hardcoded in `config.py` (and
-copied by hand into the Fabric notebook). They now live in one Excel file,
-sheet "Parameters", one row per (Parameter, BU, Year) with its Unit and
-Source — read by both the local pipeline and the Fabric notebook (through
-the OneLake shortcut), see `scripts/csr_parameters.py`.
-- **Keyed by Year** so that publishing a new year's factor never recomputes
-  the previous years' already-published emissions. To update a factor for a
-  new year, ADD rows with the new Year — never edit last year's rows.
-- A year with no row of its own reuses the most recent earlier year's value
-  (never a later one) — and the anomaly report flags it ("Parameters"
-  column), so a carried-over factor is never silent. A factor missing
-  altogether leaves the indicators depending on it empty (and flagged),
-  never computed with a 0.
-- Created once by `scripts/migrate_2026_10_create_parameters_file.py`, from
-  the values `config.py` held until then (Year=2026).
-
-## The pipeline
-
-**The code and the data live in two different places (02/10/2026):**
-
-- **The code** (this repo) is cloned on the local disk, outside OneDrive —
-  e.g. `C:\Users\<me>\Documents\CSR\monthly_reporting`. Inside a
-  OneDrive-synced folder, OneDrive locks files mid-sync and breaks `uv sync`
-  on the `.venv` ("Accès refusé", os error 5).
-- **The data** stays on the shared SharePoint library "CSR referents",
-  synced by OneDrive, under its `General/` folder (`config.GENERAL_DIR`,
-  found from the user's home folder:
-  `C:\Users\<me>\Bioline Agrosciences Group\CSR referents - Documents\General`
-  — override with the `CSR_SHAREPOINT_GENERAL_DIR` environment variable if
-  it's synced elsewhere). The library must be synced on the computer
-  ("Sync" in SharePoint) for the pipeline to run.
-
-Folders used by the pipeline, all on that SharePoint drive — nothing ever
-needs to be copied in or sent out by hand:
-
-- `config.INPUT_DIR` / `config.OUTPUT_DIR` =
-  `.../General/Reporting_Automation/monthly_reporting/input_data/` and
-  `.../output_data/` (the "database" the pipeline runs on, and its results —
-  same place as before the code moved out, so the Fabric shortcut paths
-  didn't change)
-- `config.RAW_DATA_DIR` = `.../General/Monthly reporting/Archives/`
-- `config.DATA_ENTRY_DIR` = `.../General/Monthly reporting/`
-- `config.WORKING_HOURS_FILE` = `.../General/Working Hours 2026.xlsx` (the
-  year is currently hardcoded in the filename in `config.py` — update it by
-  hand when Bioline starts a new year's file)
-- `config.ACCIDENTS_DIR` = `.../General/Monthly reporting/extract_bluekango/`
-  (the folder the BlueKanGo accidents export lands in)
+## How it works
 
 ```
-                      ONE-TIME HISTORICAL MIGRATION
-        RAW_DATA_DIR (shared drive)  →  input_data/ (this project)
-   .../Monthly reporting/Archives/*.xlsx ────────►  input_data/
-    (old 12-tab-per-BU workbooks)        extract_reference_and_data.py
-                                              Indicator_reference_CSR.xlsx
-                                              Raw_data_CSR.xlsx
-                                                                  │
-                      ┌───────────────────────────────────────────┘
-                      │            RECURRING MONTHLY CYCLE
-                      ▼
-           generate_data_entry_file.py
-                      │
-                      ▼
-     DATA_ENTRY_DIR/<BU>_data_entry_CSR_<year>.xlsm  ── written directly into the
-                                                   shared SharePoint folder
-                                                   (General/Monthly reporting)
-                                                   each CSR referent already
-                                                   has standing access to
-                      │
-        (the referent fills in the current month's orange cells, in place)
-                      │
-                      ▼
-           integrate_data_entry.py          WORKING_HOURS_FILE +
-                      │                      ACCIDENTS_DIR (BlueKanGo
-                      │                      export) — shared drive
-                      │                                │
-                      │                      integrate_safety_data.py
-                      │                                │
-                      ▼                                ▼
-        input_data/Raw_data_CSR.xlsx  ◄─────────────────┘  (updated)
-                      │
-                      ▼
-             csr_calc_engine.py
-                      │
-                      ▼
-     output_data/Consolidated_results_CSR.xlsx  (final result, all BUs/months)
+ LOCAL (this repo)                SHAREPOINT "CSR referents" / General/          FABRIC (LH_CSR_Reporting)
+                                  (OneLake shortcut Files/sp_csr_general)
+
+ generate_data_entry_file.py ──►  Monthly reporting/
+                                    <BU>_data_entry_CSR_<year>.xlsm
+                                    (each referent fills in their file)  ──┐
+                                  Working Hours <year>.xlsx              ──┤
+                                  Monthly reporting/extract_bluekango/   ──┤   nb_consolidate_csr_data
+                                    (BlueKanGo accidents export)           ├─►   CSR_raw_data
+                                  Reporting_Automation/monthly_reporting/  │     CSR_indicators_report
+                                    input_data/                            │     CSR_completion_report
+                                      Indicator_reference_CSR.xlsx       ──┤     CSR_parameters
+                                      CSR_parameters.xlsx                ──┘     CSR_anomalies
+                                                                                      │
+                                                                     f_Sales ──► nb_consolidate_sap_and_csr_data
+                                                                                   CSR_gold_reporting (+ ratios)
+                                                                                      │
+                                                                                   Power BI
 ```
 
-The migration on the left (`extract_reference_and_data.py`) runs **once**,
-to convert the old-format workbooks into the new format. After that, it is
-never run again — the monthly cycle on the right only ever touches the new
-format.
+1. **Data entry files** — `scripts/generate_data_entry_file.py` (run
+   locally) writes one `.xlsm` per BU and per year into the SharePoint
+   folder the referents already use. Each file only lists the indicators
+   that referent owns, one tab per month; only the value and comment cells
+   are editable. A macro keeps the current month highlighted and the completion
+   tracker up to date every time the file is opened, so it only needs
+   regenerating when the indicator list changes or a new year starts.
+2. **Consolidation** — the Fabric notebook `nb_consolidate_csr_data`
+   (source: `scripts/nb_consolidate_csr_data.py`) reads the data entry
+   files, the Working Hours file and the latest BlueKanGo export straight
+   from SharePoint, cleans the values, computes the additive indicators and
+   writes the Delta tables above.
+3. **Ratios and sales** — the Fabric notebook
+   `nb_consolidate_sap_and_csr_data` (source:
+   `scripts/nb_consolidate_sap_and_csr_data.py`) joins the SAP sales figure
+   (Env.1) and computes the 7 ratio indicators into `CSR_gold_reporting`.
+   Its sales column mapping is still to be confirmed (TODO in Cell 2).
 
-Both `Raw_data_CSR.xlsx` and `Consolidated_results_CSR.xlsx` carry a "Year"
-column (added 22/09/2026) — every row is keyed by (BU, Year, Month,
-Indicator), not just (BU, Month), so the pipeline can keep running year
-after year without a new year's August silently overwriting the previous
-one's. This is also why the data entry file is one file PER YEAR (see step 1
-below) rather than a single file reused forever.
+The two notebooks are **not synced with this repo**: the `.py` files are
+their source, split into `# Cell N` blocks, and are copied into Fabric by
+hand after each change.
 
-## Project layout
+## Key rules
 
-| Folder / file | What it holds |
-|---|---|
-| `scripts/` | All the code. Not a Python package on purpose — just scripts you run directly with `uv run`. |
-| `templates/` | The empty `.xlsm` macro template every data entry file is built on (no data in it). |
-| `tests/` | Automated tests (pytest) for the logic in `scripts/`. |
-| `.github/workflows/` | CI: runs the test suite on every push/PR. |
+- **Sums only in the consolidation, ratios downstream.** A sum rolls up
+  correctly to a group total, a ratio does not (averaging 6 BUs' "%
+  renewable energy" gives a meaningless number). Ratios (Wat.2, Ene.10,
+  Ene.11, Was.3, Was.4, Saf.6, Saf.7) are computed per BU and month in the
+  second notebook, and group-level ratios must be recomputed from the sums
+  (e.g. DAX measures).
+- **Every row is keyed by (BU, Year, Month, ID).** Data entry files are one
+  per year; a new year never overwrites the previous one.
+- **Values are cleaned, never guessed.** A decimal comma or numeric text is
+  converted and the correction is logged; unreadable text is left empty and
+  flagged for a fix at the source.
+- **No real data in git.** All data lives on SharePoint; `input_data/` and
+  `output_data/` stay in `.gitignore` as a safety net.
 
-No data is in this repo: `input_data/`, `output_data/`, the original raw
-workbooks, the data entry files, the Working Hours file and the BlueKanGo
-export all live on the shared SharePoint drive — see `scripts/config.py`.
+## The indicator reference list
 
-## Getting started
+`input_data/Indicator_reference_CSR.xlsx` (sheet "Reference") is the single
+source of truth: one row per indicator (46 today), with its unit,
+definition and:
 
-Requirements: [uv](https://docs.astral.sh/uv/) (Python package/version
-manager). uv takes care of installing the right Python version and
-dependencies.
+- **Kind**: `input` (entered by someone) or `calculated` (never entered).
+- **Responsible**: who owns the number. Only `input` + `CSR referent`
+  indicators appear in the data entry files. Safety indicators (Saf.*,
+  owned by H&S / HR) come from Working Hours and BlueKanGo instead.
 
-Clone the repo on the local disk (NOT inside a OneDrive/SharePoint folder),
-and make sure the "CSR referents" SharePoint library is synced on the
-computer (see above):
+Adding or removing a row is picked up by the next data entry file
+generation and the next notebook run. A new **calculated** indicator also
+needs its formula in the notebook (Cell 5): an additive formula in
+`FORMULAS`, or in the second notebook if it is a ratio.
+
+Calculated indicators are of three kinds:
+
+| Kind | Examples | Where |
+|---|---|---|
+| Sums of entered values | Ene.9 (total energy), Ref.1, Carb.1-5 (CO2 = energy x factor) | `FORMULAS`, notebook 1 |
+| Context values (depend only on BU and period) | Ene.6.1, Ene.7.1, Ene.12-15 (factors), Saf.4.1 (working days, public holidays of the BU's country) | `CONTEXTUAL_VALUES`, notebook 1 |
+| Ratios | Wat.2, Ene.10, Ene.11, Was.3, Was.4, Saf.6, Saf.7 | notebook 2 |
+
+## Emission and conversion factors
+
+`input_data/CSR_parameters.xlsx`, sheet "Parameters": one row per
+(Parameter, BU, Year) with Value, Unit and Source.
+
+- **To publish a new year's factor, add rows with the new Year — never edit
+  the previous year's rows**, otherwise already-published emissions change.
+- A year without its own row reuses the most recent earlier year's value,
+  and the notebook flags it in `CSR_anomalies`. A factor missing altogether
+  leaves the dependent indicators empty (and flagged), never computed with 0.
+
+## Safety indicators
+
+| ID | Source | Rule |
+|---|---|---|
+| Saf.4.2 hours worked | Working Hours `<year>`.xlsx | blank cell = month not declared yet |
+| Saf.2 / Saf.3 injuries without / with lost time | BlueKanGo export | agency workers excluded; a month in Working Hours with no accident = 0 |
+| Saf.5 days lost | BlueKanGo export | sum of stoppage days |
+| Saf.1 days without accident | BlueKanGo export | days from month end to the BU's last accident, across years |
+
+## Anomalies
+
+Each notebook run appends to `CSR_anomalies` (with `Run_date`): corrected or
+unreadable values, missing values for every month up to the current one,
+month-over-month variations above 20%, and carried-over or missing factors.
+The alert email is to be sent from the Fabric Data Pipeline (Office 365
+Outlook activity) or Activator, based on this table.
+
+## Setup (local part)
+
+Requirements: [uv](https://docs.astral.sh/uv/), and the "CSR referents"
+SharePoint library synced on the computer ("Sync" in SharePoint). Clone the
+repo **outside OneDrive** (OneDrive locks files and breaks `uv sync`):
 
 ```
 git clone https://github.com/Bioline-Agrosciences/CSR_reporting.git C:\Users\<me>\Documents\CSR\monthly_reporting
@@ -206,188 +129,40 @@ cd C:\Users\<me>\Documents\CSR\monthly_reporting
 uv sync
 ```
 
-Then run any script with `uv run scripts/<name>.py`, from the project root.
+Paths are in `scripts/config.py`. If the library is synced somewhere else
+than `C:\Users\<me>\Bioline Agrosciences Group\CSR referents - Documents`,
+set the `CSR_SHAREPOINT_GENERAL_DIR` environment variable to its `General`
+folder.
 
-## Running the monthly cycle
+Generate the data entry files:
 
-1. **Generate the data entry files** (regenerate any time — it re-reads
-   the indicator list and the latest known data, so it's always safe to
-   re-run):
-   ```
-   uv run scripts/generate_data_entry_file.py          # all 6 BUs
-   uv run scripts/generate_data_entry_file.py BAF BFR   # just a couple of BUs
-   ```
-   This writes `<BU>_data_entry_CSR_<year>.xlsm` (one file PER YEAR — a new
-   one starts automatically the first time this is run in a new year,
-   nothing pre-filled from the year before) directly into
-   `config.DATA_ENTRY_DIR` (General/Monthly reporting on the shared
-   SharePoint drive) — referents already have access to it, nothing needs
-   to be emailed or sent around.
+```
+uv run scripts/generate_data_entry_file.py          # all 6 BUs
+uv run scripts/generate_data_entry_file.py BAF BFR   # a selection
+```
 
-2. **The referent fills in their file, in place on SharePoint.** Only the
-   "Value of the month" and "Comment" cells for the current month (colored
-   orange) are editable. Opening the file may show an Excel security banner
-   ("Enable Content") — this needs to be clicked once, it's what lets the
-   file automatically highlight the right month and keep the completion
-   tracker up to date on every future open, without the file needing to be
-   regenerated.
+## Setup (Fabric part)
 
-3. **Integrate what's been filled in**, once the referents have entered
-   their data:
-   ```
-   uv run scripts/integrate_data_entry.py          # all BUs whose file is found
-   uv run scripts/integrate_data_entry.py BAF       # just one BU
-   ```
+- Lakehouse `LH_CSR_Reporting` (workspace BM_F_D - SAP-B1) attached as
+  default lakehouse to both notebooks, with the OneLake shortcut
+  `Files/sp_csr_general` pointing to `Shared Documents/General` of the
+  CSRreferents SharePoint site.
+- `holidays==0.105` installed for `nb_consolidate_csr_data` (Cell 0, or a
+  Fabric Environment when run from a Data Pipeline). Keep it the same
+  version as `uv.lock`: holiday dates change between versions, and with
+  them Saf.4.1.
 
-4. **Integrate Safety data** — independent of step 3 (different sources:
-   BlueKanGo + the Working Hours file, not the referent's data entry file),
-   order between the two doesn't matter, but both need to have run before
-   step 5:
-   ```
-   uv run scripts/integrate_safety_data.py
-   ```
-   Reads the Working Hours file (`config.WORKING_HOURS_FILE`) and the
-   latest BlueKanGo accidents export (`config.ACCIDENTS_DIR`), and updates
-   the same `input_data/Raw_data_CSR.xlsx` with Saf.1 (days without an
-   accident), Saf.2/Saf.3 (non-lost-time / lost-time injuries), Saf.4.2
-   (hours worked) and Saf.5 (days lost) — these Safety indicators are owned
-   by the H&S manager/HR, not the CSR referent, so they never go through
-   the data entry file from step 1-3.
+## Layout
 
-5. **Recompute the consolidated results:**
-   ```
-   uv run scripts/csr_calc_engine.py
-   ```
-   Writes `output_data/Consolidated_results_CSR.xlsx` (two tabs: "Results",
-   every indicator/BU/month, and "Completion", one row per BU x month with
-   its % completion for the current year, scoped to the CSR-referent-owned
-   indicators — the same tracking each BU's own "Tracking" tab shows
-   individually, consolidated here across all 6 BUs in one place; long/tidy
-   format, so BU and Month are both plain columns a PivotTable or Power BI
-   can filter and group by directly), and
-   emails the anomaly report (see below).
-
-## The indicator reference list
-
-`input_data/Indicator_reference_CSR.xlsx` is the single source of truth for
-what gets tracked. Each row is one indicator, with:
-
-- **Kind**: `input` (a referent types it in) or `calculated` (the engine
-  computes it — never shown in the file the referent fills in). `calculated`
-  covers three different mechanisms under the hood: a sum of other entered
-  values (`csr_calc_engine.py`'s `FORMULAS`), a value derived from context
-  alone — a constant or a calendar, never anyone's entry
-  (`CONTEXTUAL_VALUES`), or computed downstream instead, not by this
-  pipeline at all (the ratios, see above).
-- **Responsible**: who actually owns that number — usually "CSR referent",
-  but some indicators belong to Finance, HR, or the H&S manager instead;
-  those are entered elsewhere, not through this pipeline's data entry file.
-  Safety (Saf.*, owned by H&S manager/HR) is the one case this pipeline
-  handles too, via `integrate_safety_data.py` (see step 4 above) rather
-  than a data entry file. Sales (Env.1) and FTE (Saf.4) don't appear in
-  this reference list at all anymore (see above) — Env.1 is handled
-  entirely downstream, in Fabric/Power BI, and Saf.4 isn't tracked
-  anywhere in this pipeline any longer.
-
-39 indicators originally; 37 remain after Env.1 and Saf.4 were excluded
-(23/09/2026), plus 9 more appended on top (25/09/2026 — Ene.12-15 and
-Carb.1-5, see above): 46 in total.
-
-Add, edit, or remove a row here and every script picks it up automatically
-on its next run — nothing else to change.
-
-## Data confidentiality
-
-Real Bioline data never gets committed to git — all of it lives on the
-shared SharePoint drive, outside the repo (see above), and `input_data/`/
-`output_data/` are still excluded in `.gitignore` as a safety net. Only
-code, tests, configuration and the empty macro template are tracked.
-
-## Anomaly report email
-
-Every `csr_calc_engine.py` run also emails a summary of anything worth a
-second look: data quality corrections, missing values, and large
-month-over-month variations. A per-BU count table goes in the email itself;
-the full row-by-row detail is attached as
-`output_data/Anomaly_report_CSR_<date>.xlsx`. Sent through the local Outlook
-desktop app — no password stored anywhere.
-
-**Outlook must already be open** when you run `csr_calc_engine.py` — the
-script only attaches to an already-running Outlook, it never launches one
-itself (launching it from a script can hang indefinitely with no error,
-waiting on a UI it can't show). If Outlook isn't open, the report is still
-printed to the console and the detail workbook still gets written to
-`output_data/`, it just doesn't get emailed.
-
-Configure who receives it, or turn it off entirely, in `scripts/config.py` (`REPORT_RECIPIENTS`,
-`SEND_ERROR_REPORT_EMAIL`).
+| Path | Content |
+|---|---|
+| `scripts/` | `generate_data_entry_file.py`, `config.py`, and the source of the two Fabric notebooks (`nb_*.py`) |
+| `templates/` | Empty `.xlsm` template carrying the data entry file's macro |
+| `tests/` | pytest tests, run by CI on every push/PR |
+| `archive/` | Migration scripts and the former local consolidation, plus the history of decisions (`archive/DECISIONS.md`) |
 
 ## Tests
 
 ```
 uv run pytest
 ```
-
-Every push and pull request also runs the test suite automatically via
-GitHub Actions (see `.github/workflows/tests.yml`).
-
-## One-off utility scripts (not part of the monthly cycle)
-
-- `scripts/locate_safety_files.py` — searches your OneDrive for the Working
-  Hours file and the BlueKanGo export, to help fill in `WORKING_HOURS_FILE`
-  and `ACCIDENTS_DIR` in `config.py`. Run once, or again if either file
-  ever moves.
-- `scripts/migrate_2026_09_remove_env1.py` — one-time cleanup for the
-  23/09/2026 decision above: removes the Env.1 row already sitting in
-  `Indicator_reference_CSR.xlsx` and every historical Env.1 row already in
-  `Raw_data_CSR.xlsx` (both backed up first). Already run once on the real
-  files; only needed again on a fresh setup that still has an older
-  `Indicator_reference_CSR.xlsx`/`Raw_data_CSR.xlsx` predating this decision.
-- `scripts/migrate_2026_09_reclassify_conversion_factors.py` — same idea,
-  for the Saf.4 (FTE) exclusion and the Ene.6.1/Ene.7.1/Saf.4.1
-  reclassification above. Already run once on the real files.
-- `scripts/migrate_2026_09_add_carbon_indicators.py` — one-time cleanup for
-  the 25/09/2026 decision above: regenerates
-  `Indicator_reference_CSR.xlsx` so it includes the 9 carbon/emission-factor
-  indicators (Ene.12-15, Carb.1-5) that were omitted from the initial
-  extraction (backed up first). No change needed to `Raw_data_CSR.xlsx` —
-  none of these 9 are ever hand-entered.
-- `scripts/migrate_2026_10_create_parameters_file.py` — one-time setup for
-  the 02/10/2026 decision above: creates `input_data/CSR_parameters.xlsx`
-  from the factors previously in `config.py`. Never overwrites an existing
-  file. Must be run once before the next `csr_calc_engine.py` run.
-- `scripts/nb_consolidate_csr_data.py` — not run from here at all (a
-  Fabric notebook, kept in this repo for reference and version history):
-  the same consolidation as steps 3-5 of the monthly cycle
-  (`integrate_data_entry.py` + `integrate_safety_data.py` +
-  `csr_calc_engine.py`), run in Fabric. Reads the 6 data entry files, the
-  Working Hours file, the latest BlueKanGo export, the reference list and
-  `CSR_parameters.xlsx` live from SharePoint through a OneLake shortcut
-  (`LH_CSR_Reporting/Files/sp_csr_general` = `Shared Documents/General` of
-  the CSRreferents site), and writes Delta tables (`CSR_raw_data`,
-  `CSR_indicators_report`, `CSR_completion_report`, `CSR_parameters`,
-  `CSR_anomalies`). Validated on 02/10/2026 against the local pipeline
-  (2808 values, the only differences being entries made after the last
-  local run): it replaces steps 3-5 once `CSR_indicators_report` and
-  `CSR_completion_report` are removed from the Fabric Dataflow.
-- `scripts/nb_consolidate_sap_and_csr_data.py` — not run from here at all
-  (a Fabric/Spark notebook, kept in this repo for reference and version
-  history): recomputes the 7 ratio indicators and joins the real Sales/SAP
-  figure downstream, from the raw components this pipeline still produces.
-- `scripts/compare_archived_vs_consolidated.py` — diagnostic tool, run by
-  hand whenever you want to see exactly how much a pipeline change moved
-  the numbers: compares every indicator as it originally appeared in the
-  raw per-BU workbooks (`RAW_DATA_DIR`) against `output_data/
-  Consolidated_results_CSR.xlsx`, for `HISTORICAL_YEAR` only. Tells apart
-  genuine differences, absences that are expected by design (Env.1/Saf.4
-  exclusions, ratio indicators no longer computed here — derived live from
-  the current `FORMULAS`/`CONTEXTUAL_VALUES`/`EXCLUDED_IDS`, so it can't
-  silently drift out of sync), and unexpected absences worth investigating.
-  Prints a per-ID summary and a sample of rows to the console, and always
-  writes the full detail to a timestamped `output_data/
-  Comparison_archived_vs_consolidated_<date>.xlsx` ("Summary" and "Details"
-  sheets).
-  ```
-  uv run scripts/compare_archived_vs_consolidated.py          # every indicator
-  uv run scripts/compare_archived_vs_consolidated.py Saf       # only IDs starting with "Saf"
-  ```
