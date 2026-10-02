@@ -15,7 +15,7 @@
 #     Raw_data_CSR.xlsx local, pour repartir exactement du même état que le
 #     pipeline local (historique 2026 issu des Archives compris).
 #   - Consolidated_results_CSR.xlsx -> tables Delta CSR_indicators_report et
-#     CSR_completion_tracking.
+#     CSR_completion_report.
 #   - Rapport d'anomalies -> table CSR_anomalies (append, une colonne
 #     Run_date — garde l'historique comme les fichiers horodatés en local).
 #     L'email Outlook ne peut pas tourner dans Fabric (pas d'Outlook
@@ -27,21 +27,22 @@
 # faits ensuite par nb_consolidate_sap_and_csr_data, à enchaîner juste après
 # celui-ci dans le même pipeline.
 #
-# Double run (local + Fabric) : avec OUTPUT_SUFFIX = "_nb", les tables de
-# résultats sont écrites À CÔTÉ de celles produites aujourd'hui par le
-# Dataflow (CSR_indicators_report_nb, ...), jamais par-dessus. La cellule 9
-# compare au Consolidated_results_CSR.xlsx local. Une fois identique :
-# OUTPUT_SUFFIX = "", retirer ces 2 requêtes du Dataflow.
+# Validé le 02/10/2026 en double run contre le pipeline local (2808 valeurs,
+# seuls écarts = saisies postérieures au dernier run local), puis basculé :
+# ce notebook est désormais LA consolidation — les scripts locaux
+# integrate_*.py / csr_calc_engine.py ne sont plus lancés (seul
+# generate_data_entry_file.py reste local). CSR_indicators_report et
+# CSR_completion_report ne viennent plus du Dataflow.
 #
 # Facteurs de conversion et d'émission : lus dans input_data/CSR_parameters.xlsx
-# (un facteur par BU et par année), LE MÊME fichier que le pipeline local —
+# (un facteur par BU et par année), le même fichier que les scripts locaux —
 # rien à recopier ici quand un facteur change. Recopiés en table
 # CSR_parameters pour Power BI.
 #
-# Tant que le pipeline local tourne aussi, les constantes restantes de la
-# cellule 2 (BU_COUNTRY, BU_NAME_MAP, seuil) et les fonctions des cellules 3
-# à 6 doivent rester synchronisées avec scripts/config.py et les scripts
-# d'origine.
+# Les constantes restantes de la cellule 2 (BU_COUNTRY, BU_NAME_MAP, seuil)
+# et les fonctions des cellules 3 à 6 sont copiées de scripts/config.py et
+# des scripts locaux : une modification de logique se fait ici en priorité,
+# et se reporte dans les scripts locaux s'ils doivent resservir.
 #
 # Lakehouse par défaut à attacher : LH_CSR_Reporting.
 
@@ -49,11 +50,17 @@
 # Cell 0 — dépendance manquante du runtime Fabric (pour Saf.4.1), à mettre
 # seule dans sa cellule, sans le "#" :
 # --------------------------------------------------------------------------
-# %pip install holidays
+# %pip install holidays==0.105
+#
+# Version FIGÉE, identique à celle de uv.lock côté local : les fêtes à date
+# estimée (ex. Idd-ul-Fitr au Kenya) changent d'une version à l'autre, et
+# donc Saf.4.1 (jours ouvrés) avec — vu le 02/10/2026 : BAF mars 2026 = 21
+# jours en 0.105, 22 avec la version installée par défaut dans Fabric. À
+# mettre à jour EN MÊME TEMPS que uv.lock, jamais l'un sans l'autre.
 #
 # En exécution planifiée (Data Pipeline), %pip dans le notebook est bloqué
-# par défaut — préférer alors un Environment Fabric avec "holidays" en
-# bibliothèque publique, attaché à ce notebook.
+# par défaut — préférer alors un Environment Fabric avec "holidays==0.105"
+# en bibliothèque publique, attaché à ce notebook.
 
 # --------------------------------------------------------------------------
 # Cell 1 — paramètres (à marquer "cellule de paramètres" pour que le
@@ -62,7 +69,6 @@
 SOURCE_ROOT = "/lakehouse/default/Files/sp_csr_general"
 TARGET_YEAR = None      # None = année en cours. Ex. 2026 en janvier 2027 pour finir décembre.
 CURRENT_MONTH = None    # None = mois en cours (ou décembre si TARGET_YEAR est une année passée)
-OUTPUT_SUFFIX = "_nb"   # "" une fois la bascule faite (voir en-tête)
 RESEED_RAW = False      # True = repartir du Raw_data_CSR.xlsx local (écrase CSR_raw_data)
 
 # --------------------------------------------------------------------------
@@ -98,12 +104,11 @@ WORKING_HOURS_FILE = f"{SOURCE_ROOT}/Working Hours {TARGET_YEAR}.xlsx"
 PROJECT_DIR = f"{SOURCE_ROOT}/Reporting_Automation/monthly_reporting"
 REFERENCE_FILE = f"{PROJECT_DIR}/input_data/Indicator_reference_CSR.xlsx"
 SEED_RAW_FILE = f"{PROJECT_DIR}/input_data/Raw_data_CSR.xlsx"
-LOCAL_RESULTS_FILE = f"{PROJECT_DIR}/output_data/Consolidated_results_CSR.xlsx"
 
-RAW_TABLE = "CSR_raw_data"  # pas de suffixe : aucune autre source ne produit cette table
-RESULTS_TABLE = f"CSR_indicators_report{OUTPUT_SUFFIX}"
-COMPLETION_TABLE = f"CSR_completion_tracking{OUTPUT_SUFFIX}"
-ANOMALIES_TABLE = f"CSR_anomalies{OUTPUT_SUFFIX}"
+RAW_TABLE = "CSR_raw_data"
+RESULTS_TABLE = "CSR_indicators_report"
+COMPLETION_TABLE = "CSR_completion_report"  # même nom que la table produite avant par le Dataflow
+ANOMALIES_TABLE = "CSR_anomalies"
 
 BU_LIST = ["Viridaxis", "BAF", "BFR", "BIB", "BUK", "BUS"]
 
@@ -114,7 +119,7 @@ BU_COUNTRY = {"Viridaxis": "BE", "BAF": "KE", "BFR": "FR", "BIB": "ES", "BUK": "
 # le même fichier que lit le pipeline local — voir la cellule 5 et
 # scripts/csr_parameters.py.
 PARAMETERS_FILE = f"{PROJECT_DIR}/input_data/CSR_parameters.xlsx"
-PARAMETERS_TABLE = f"CSR_parameters{OUTPUT_SUFFIX}"
+PARAMETERS_TABLE = "CSR_parameters"
 
 VARIATION_THRESHOLD = 0.20
 
@@ -700,25 +705,3 @@ write_table(consolidated.assign(Month=consolidated["Month"].astype(str)), RESULT
 write_table(completion, COMPLETION_TABLE, COMPLETION_SCHEMA)
 write_table(parameters.reindex(columns=PARAMETER_COLS), PARAMETERS_TABLE, PARAMETERS_SCHEMA)  # pour Power BI
 write_table(anomalies, ANOMALIES_TABLE, ANOMALIES_SCHEMA, mode="append")
-
-# --------------------------------------------------------------------------
-# Cell 9 — double run : comparaison au Consolidated_results_CSR.xlsx local
-# --------------------------------------------------------------------------
-# À lancer tant que OUTPUT_SUFFIX = "_nb". Un écart n'est pas forcément un
-# bug : si un référent a saisi depuis le dernier run local, Fabric (qui lit
-# la version à jour) a une valeur que le fichier local n'a pas encore —
-# relancer le pipeline local juste avant pour comparer à état égal.
-keys = ["BU", "Year", "Month", "ID"]
-local = pd.read_excel(LOCAL_RESULTS_FILE, sheet_name="Results")[keys + ["Value"]]
-local["Month"] = local["Month"].astype(str)
-fabric = consolidated[keys + ["Value"]].assign(Month=consolidated["Month"].astype(str))
-
-cmp = local.merge(fabric, on=keys, how="outer", suffixes=("_local", "_fabric"), indicator=True)
-a, b = cmp["Value_local"], cmp["Value_fabric"]
-same = (a.isna() & b.isna()) | ((a - b).abs() <= 1e-9 * np.maximum(1, a.abs()))
-diff = cmp[(cmp["_merge"] != "both") | ~same]
-
-print(f"{len(cmp)} (BU, Year, Month, ID) compared, {len(diff)} difference(s).")
-if len(diff):
-    print(diff.groupby(["_merge", "ID"]).size().to_string())
-    print(diff.head(50).to_string(index=False))
