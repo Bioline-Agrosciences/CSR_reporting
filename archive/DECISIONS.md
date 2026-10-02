@@ -147,8 +147,7 @@ where it landed (`git show <commit>` for the details).
 ## 02/10/2026 — Ratios in the dashboard, sales from the semantic model, notebooks as .ipynb
 
 - **Ratios computed in the Power BI dashboard, not in Fabric**: the second
-  notebook (`nb_consolidate_sap_and_csr_data`) computes no indicator at
-  all; ratios are computed on the fly in the dashboard, at the level of
+  notebook computes no indicator at all; ratios are computed on the fly in the dashboard, at the level of
   aggregation displayed. This supersedes the earlier plan of computing
   them per BU in that notebook.
 - **Sales (Env.1) read from the commercial dashboard's semantic model**
@@ -162,10 +161,18 @@ where it landed (`git show <commit>` for the details).
   2 023 347 € for BUK July 2026).
 - **SAP entities -> BUs**: both DUDUTECH entities -> BAF, BIOLINE
   AGROSCIENCES MEXICANA -> BUS (confirmed).
-- **`CSR_gold_reporting` keeps the schema the dashboard already reads**:
-  Entity, BU, Year, Month (number), MonthName, ID, Value, Date. Env.1 stays
-  one row per SAP entity (Entity filled, the dashboard sums by BU); CSR
-  indicators have no entity.
+- **The production notebook is `nb_consolidate_data_for_CSR_report`**
+  (the draft `nb_consolidate_sap_and_csr_data` is abandoned). It writes the
+  two tables the dashboard reads, whose schema is kept as is:
+  `CSR_gold_reporting` (Entity, BU, Year, Month number, MonthName, ID,
+  Value, Date — sales as `Env.1` in k€ and `Sales_€` in €, one row per SAP
+  entity) and `CSR_gold_tracking` (completion, same date columns). Date =
+  1st of the month, for the relation with d_Calendar.
+- **Cleanup of that notebook**: CSR indicators were joined to the sales
+  wide, per entity, which duplicated every CSR value of BAF and BUS (2
+  entities each) and dropped the months without sales (inner join). Sales
+  and CSR indicators are now stacked instead: CSR rows have no entity, and
+  every month is kept. Empty values are no longer written.
 - **Notebooks versioned as `.ipynb` exported from Fabric**, replacing the
   `.py` transcriptions whose cell layout no longer matched Fabric (and whose
   sales notebook did not match what ran at all). Exported without outputs,
@@ -179,6 +186,11 @@ where it landed (`git show <commit>` for the details).
   never confirmed.
 - BlueKanGo label "Bioline Viridaxis" never seen in an export, unverified.
 - Agency-worker accidents excluded from Saf.1 too: assumption to confirm.
-- `nb_consolidate_sap_and_csr_data`: cleaned version to run and validate
-  in Fabric.
+- `nb_consolidate_data_for_CSR_report`: cleaned version to run and
+  validate in Fabric (check the dashboard visuals for BAF and BUS, whose
+  CSR values are no longer doubled).
+- `CSR_indicators_report` and `CSR_completion_report` read by the dashboard
+  notebook on 02/10/2026 had no Year column, i.e. were still the Dataflow's
+  version: the Dataflow queries must be removed so they stop overwriting
+  the consolidation notebook's tables.
 - Anomaly email still to be set up in the Fabric Data Pipeline / Activator.

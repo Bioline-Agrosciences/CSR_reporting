@@ -10,8 +10,9 @@ sur le code.
   `config.py`), qui écrit les fichiers de saisie dans SharePoint.
 - **Fabric** (workspace BM_F_D - SAP-B1, lakehouse LH_CSR_Reporting) :
   `scripts/nb_consolidate_csr_data.ipynb` (consolidation, sommes) puis
-  `scripts/nb_consolidate_sap_and_csr_data.ipynb` (ajout des ventes Env.1
-  depuis le modèle sémantique commercial, aucun calcul).
+  `scripts/nb_consolidate_data_for_CSR_report.ipynb` (tables du tableau de
+  bord : CSR_gold_reporting avec les ventes depuis le modèle sémantique
+  commercial, CSR_gold_tracking ; aucun calcul).
 - **Power BI** : les ratios, calculés à la volée dans le tableau de bord.
 - `archive/` : scripts de migration et ancienne consolidation locale, gelés.
   Ne pas les modifier ni s'en servir comme référence de la logique actuelle

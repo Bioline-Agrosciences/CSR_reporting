@@ -21,8 +21,9 @@ BIB, BUK, BUS. Results land in Fabric Delta tables read by Power BI.
                                       Indicator_reference_CSR.xlsx       ──┤     CSR_parameters
                                       CSR_parameters.xlsx                ──┘     CSR_anomalies
                                                                                       │
-                                          commercial semantic model ──► nb_consolidate_sap_and_csr_data
-                                          ("Sales | Commercial")          CSR_gold_reporting (+ Env.1 sales)
+                                          commercial semantic model ──► nb_consolidate_data_for_CSR_report
+                                          ("Sales | Commercial")          CSR_gold_reporting (+ sales)
+                                                                          CSR_gold_tracking
                                                                                       │
                                                                                    Power BI (ratios)
 ```
@@ -38,12 +39,17 @@ BIB, BUK, BUS. Results land in Fabric Delta tables read by Power BI.
    reads the data entry files, the Working Hours file and the latest
    BlueKanGo export straight from SharePoint, cleans the values, computes
    the additive indicators and writes the Delta tables above.
-3. **Sales** — the Fabric notebook `nb_consolidate_sap_and_csr_data` reads
-   the "Sales | Commercial" measure of the commercial dashboard's semantic
-   model (actuals, per SAP entity and month, so the figure matches the
-   commercial report), maps SAP entities to BUs, and writes the CSR
-   indicators plus Env.1 (one row per SAP entity) to `CSR_gold_reporting`
-   (Entity, BU, Year, Month number, MonthName, ID, Value, Date).
+3. **Dashboard tables** — the Fabric notebook
+   `nb_consolidate_data_for_CSR_report` reads the "Sales | Commercial"
+   measure of the commercial dashboard's semantic model (actuals, per SAP
+   entity and month, so the figure matches the commercial report), maps SAP
+   entities to BUs, and writes:
+   - `CSR_gold_reporting`: the CSR indicators plus the sales, one row per
+     SAP entity and month (`Env.1` in k€, `Sales_€` in €). Columns: Entity
+     (empty for CSR indicators), BU, Year, Month (number), MonthName, ID,
+     Value, Date (1st of the month, for d_Calendar);
+   - `CSR_gold_tracking`: `CSR_completion_report` with the same date
+     columns.
 4. **Ratios** — computed on the fly in the Power BI dashboard.
 
 The two notebooks are versioned in `scripts/` as `.ipynb` files exported
@@ -92,7 +98,7 @@ Calculated indicators are of three kinds:
 | Ratios | Wat.2, Ene.10, Ene.11, Was.3, Was.4, Saf.6, Saf.7 | Power BI dashboard |
 
 Env.1 (sales) is not in the reference list: it comes from SAP, through the
-second notebook.
+`nb_consolidate_data_for_CSR_report`.
 
 ## Emission and conversion factors
 
@@ -156,7 +162,7 @@ uv run scripts/generate_data_entry_file.py BAF BFR   # a selection
   or a Fabric Environment when run from a Data Pipeline). Keep it the same
   version as `uv.lock`: holiday dates change between versions, and with
   them Saf.4.1.
-- `nb_consolidate_sap_and_csr_data` reads the semantic model
+- `nb_consolidate_data_for_CSR_report` reads the semantic model
   "Bioline Agrosciences sales - Copy" of the same workspace (`sempy`).
 
 To version a notebook changed in Fabric: export it (File > Export >

@@ -9,7 +9,7 @@ NOTEBOOKS = sorted((Path(__file__).resolve().parents[1] / "scripts").glob("*.ipy
 
 
 def test_notebooks_are_found():
-    assert {p.name for p in NOTEBOOKS} >= {"nb_consolidate_csr_data.ipynb", "nb_consolidate_sap_and_csr_data.ipynb"}
+    assert {p.name for p in NOTEBOOKS} >= {"nb_consolidate_csr_data.ipynb", "nb_consolidate_data_for_CSR_report.ipynb"}
 
 
 @pytest.mark.parametrize("path", NOTEBOOKS, ids=lambda p: p.name)
