@@ -42,7 +42,8 @@ BIB, BUK, BUS. Results land in Fabric Delta tables read by Power BI.
    the "Sales | Commercial" measure of the commercial dashboard's semantic
    model (actuals, per SAP entity and month, so the figure matches the
    commercial report), maps SAP entities to BUs, and writes the CSR
-   indicators plus Env.1 to `CSR_gold_reporting`.
+   indicators plus Env.1 (one row per SAP entity) to `CSR_gold_reporting`
+   (Entity, BU, Year, Month number, MonthName, ID, Value, Date).
 4. **Ratios** — computed on the fly in the Power BI dashboard.
 
 The two notebooks are versioned in `scripts/` as `.ipynb` files exported

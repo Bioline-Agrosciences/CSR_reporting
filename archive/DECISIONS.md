@@ -157,8 +157,15 @@ where it landed (`git show <commit>` for the details).
   summed from the raw sales table or a separate DAX query: it gives the same
   figure as the commercial report. Summing the raw table (2.5 million rows)
   gave about twice the figure (BUK July 2026: 4.04 M€ vs 2.02 M€).
+  The measure is taken as is, whatever its currency handling (a DAX query
+  filtered on EURO gave a slightly different figure: 2 032 475 € vs
+  2 023 347 € for BUK July 2026).
 - **SAP entities -> BUs**: both DUDUTECH entities -> BAF, BIOLINE
-  AGROSCIENCES MEXICANA -> BUS.
+  AGROSCIENCES MEXICANA -> BUS (confirmed).
+- **`CSR_gold_reporting` keeps the schema the dashboard already reads**:
+  Entity, BU, Year, Month (number), MonthName, ID, Value, Date. Env.1 stays
+  one row per SAP entity (Entity filled, the dashboard sums by BU); CSR
+  indicators have no entity.
 - **Notebooks versioned as `.ipynb` exported from Fabric**, replacing the
   `.py` transcriptions whose cell layout no longer matched Fabric (and whose
   sales notebook did not match what ran at all). Exported without outputs,
@@ -172,8 +179,6 @@ where it landed (`git show <commit>` for the details).
   never confirmed.
 - BlueKanGo label "Bioline Viridaxis" never seen in an export, unverified.
 - Agency-worker accidents excluded from Saf.1 too: assumption to confirm.
-- `nb_consolidate_sap_and_csr_data`: cleaned version to validate in
-  Fabric; confirm that "Sales | Commercial" is in euros (a DAX query
-  filtered on EURO gave 2 032 475 € for BUK July 2026, the measure
-  2 023 347 €) and that MEXICANA belongs in BUS.
+- `nb_consolidate_sap_and_csr_data`: cleaned version to run and validate
+  in Fabric.
 - Anomaly email still to be set up in the Fabric Data Pipeline / Activator.
