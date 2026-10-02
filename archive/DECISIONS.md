@@ -172,7 +172,9 @@ where it landed (`git show <commit>` for the details).
   wide, per entity, which duplicated every CSR value of BAF and BUS (2
   entities each) and dropped the months without sales (inner join). Sales
   and CSR indicators are now stacked instead: CSR rows have no entity, and
-  every month is kept. Empty values are no longer written.
+  every month is kept. Empty values are no longer written. The dashboard
+  filters by BU only, never by Entity (confirmed): the Entity column is
+  kept for traceability of the sales, not used in visuals.
 - **Notebooks versioned as `.ipynb` exported from Fabric**, replacing the
   `.py` transcriptions whose cell layout no longer matched Fabric (and whose
   sales notebook did not match what ran at all). Exported without outputs,
