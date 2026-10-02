@@ -96,11 +96,28 @@ the OneLake shortcut), see `scripts/csr_parameters.py`.
 
 ## The pipeline
 
-Folders used by the pipeline are deliberately **not inside this
-project** — they live directly on the shared SharePoint drive instead (this
-whole project already sits inside the same synced library), so nothing
-ever needs to be copied in or sent out by hand:
+**The code and the data live in two different places (02/10/2026):**
 
+- **The code** (this repo) is cloned on the local disk, outside OneDrive —
+  e.g. `C:\Users\<me>\Documents\CSR\monthly_reporting`. Inside a
+  OneDrive-synced folder, OneDrive locks files mid-sync and breaks `uv sync`
+  on the `.venv` ("Accès refusé", os error 5).
+- **The data** stays on the shared SharePoint library "CSR referents",
+  synced by OneDrive, under its `General/` folder (`config.GENERAL_DIR`,
+  found from the user's home folder:
+  `C:\Users\<me>\Bioline Agrosciences Group\CSR referents - Documents\General`
+  — override with the `CSR_SHAREPOINT_GENERAL_DIR` environment variable if
+  it's synced elsewhere). The library must be synced on the computer
+  ("Sync" in SharePoint) for the pipeline to run.
+
+Folders used by the pipeline, all on that SharePoint drive — nothing ever
+needs to be copied in or sent out by hand:
+
+- `config.INPUT_DIR` / `config.OUTPUT_DIR` =
+  `.../General/Reporting_Automation/monthly_reporting/input_data/` and
+  `.../output_data/` (the "database" the pipeline runs on, and its results —
+  same place as before the code moved out, so the Fabric shortcut paths
+  didn't change)
 - `config.RAW_DATA_DIR` = `.../General/Monthly reporting/Archives/`
 - `config.DATA_ENTRY_DIR` = `.../General/Monthly reporting/`
 - `config.WORKING_HOURS_FILE` = `.../General/Working Hours 2026.xlsx` (the
@@ -164,16 +181,14 @@ below) rather than a single file reused forever.
 
 | Folder / file | What it holds |
 |---|---|
-| `input_data/` | The indicator reference list + the consolidated raw data, all BUs. The "database" the pipeline runs on. Never committed to git, except the empty macro template. |
-| `output_data/` | The final consolidated results + the anomaly report attachment. Never committed to git. |
 | `scripts/` | All the code. Not a Python package on purpose — just scripts you run directly with `uv run`. |
+| `templates/` | The empty `.xlsm` macro template every data entry file is built on (no data in it). |
 | `tests/` | Automated tests (pytest) for the logic in `scripts/`. |
 | `.github/workflows/` | CI: runs the test suite on every push/PR. |
 
-The original raw workbooks and the data entry files are **not** in this
-project — see `scripts/config.py` for `RAW_DATA_DIR` and `DATA_ENTRY_DIR`,
-both pointing directly at the shared SharePoint drive. Same for
-`WORKING_HOURS_FILE` and `ACCIDENTS_DIR`.
+No data is in this repo: `input_data/`, `output_data/`, the original raw
+workbooks, the data entry files, the Working Hours file and the BlueKanGo
+export all live on the shared SharePoint drive — see `scripts/config.py`.
 
 ## Getting started
 
@@ -181,7 +196,13 @@ Requirements: [uv](https://docs.astral.sh/uv/) (Python package/version
 manager). uv takes care of installing the right Python version and
 dependencies.
 
+Clone the repo on the local disk (NOT inside a OneDrive/SharePoint folder),
+and make sure the "CSR referents" SharePoint library is synced on the
+computer (see above):
+
 ```
+git clone https://github.com/Bioline-Agrosciences/CSR_reporting.git C:\Users\<me>\Documents\CSR\monthly_reporting
+cd C:\Users\<me>\Documents\CSR\monthly_reporting
 uv sync
 ```
 
@@ -277,11 +298,10 @@ on its next run — nothing else to change.
 
 ## Data confidentiality
 
-Real Bioline data never gets committed to git — the raw workbooks and data
-entry files live entirely outside the project (on the shared SharePoint
-drive, see above), and `input_data/`/`output_data/` are excluded (see
-`.gitignore`), except for the empty macro template. Only code, tests, and
-configuration are tracked.
+Real Bioline data never gets committed to git — all of it lives on the
+shared SharePoint drive, outside the repo (see above), and `input_data/`/
+`output_data/` are still excluded in `.gitignore` as a safety net. Only
+code, tests, configuration and the empty macro template are tracked.
 
 ## Anomaly report email
 

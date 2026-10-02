@@ -2,30 +2,36 @@
 Paths shared by every script in the project — a single place to change if
 the folder layout ever moves.
 
-Expected project structure (see README.md at the root):
+The CODE and the DATA live in two different places (02/10/2026):
 
-    monthly_reporting/                  <- project root (holds pyproject.toml, .venv, ...)
-    ├── input_data/                     <- indicator reference + long-format raw data (1 single
-    │                                      consolidated file, all BUs) : OUTPUT of
-    │                                      extract_reference_and_data.py, INPUT of
-    │                                      generate_data_entry_file.py, integrate_data_entry.py,
-    │                                      integrate_safety_data.py and csr_calc_engine.py
-    ├── output_data/                    <- consolidated results : OUTPUT of csr_calc_engine.py
-    └── scripts/                        <- the code (this file + the scripts) — no src/, no
-        ├── config.py                      __init__.py: these aren't modules of a package
-        ├── extract_reference_and_data.py  meant to be imported from outside, just scripts
-        ├── generate_data_entry_file.py     that get run directly.
-        ├── integrate_data_entry.py
-        ├── integrate_safety_data.py
-        ├── csr_calc_engine.py
-        └── consolidation_report.py
+  - The code (this repo, cloned from GitHub) lives on the local disk, e.g.
+    C:/Users/<me>/Documents/CSR/monthly_reporting — never inside a
+    OneDrive-synced folder: OneDrive locks files mid-sync, which breaks
+    `uv sync` on the .venv ("Accès refusé", os error 5), and syncs thousands
+    of .venv files to SharePoint for nothing.
 
-Two folders on purpose are NOT inside this project — they are read from /
-written directly to the shared SharePoint drive instead, because this whole
-project already lives inside the same synced library
-(.../CSR referents - Documents/General/...), so those folders are just as
-reachable as anything inside the project itself. No manual copying in either
-direction, no local staging folder:
+  - The data stays on the shared SharePoint library "CSR referents", synced
+    on this computer by OneDrive, under its "General" folder (GENERAL_DIR
+    below) — found from the user's home folder the same way bioline_utils'
+    sharepoint_dir() does it:
+        C:/Users/<me>/Bioline Agrosciences Group/CSR referents - Documents/General
+    Override with the CSR_SHAREPOINT_GENERAL_DIR environment variable if the
+    library is synced somewhere else on a given computer.
+
+    General/
+    ├── Reporting_Automation/monthly_reporting/   <- DATA_DIR (same place as when the code lived
+    │   ├── input_data/                              here too, so the Fabric shortcut paths don't
+    │   │                                            change): indicator reference + long-format raw
+    │   │                                            data + CSR_parameters.xlsx
+    │   └── output_data/                          <- consolidated results : OUTPUT of csr_calc_engine.py
+    ├── Monthly reporting/                        <- data entry files (+ Archives/, extract_bluekango/)
+    └── Working Hours 2026.xlsx
+
+Only the empty macro template (templates/data_entry_template.xlsm) stays in
+the repo: it's part of the code, not data.
+
+Folders read from / written directly to the shared SharePoint drive — no
+manual copying in either direction, no local staging folder:
 
   - RAW_DATA_DIR = .../General/Monthly reporting/Archives/
     The 6 original raw workbooks (12-tab-per-BU, never modified by this
@@ -63,27 +69,33 @@ through DATA_ENTRY_DIR — see that script's docstring):
     22/09/2026 (a previous guess pointed at Monthly reporting/ directly,
     missing the extract_bluekango/ subfolder).
 
-This file computes these paths once, based on this file's own location
-(regardless of the directory `uv run ...` is launched from), and creates the
-input_data/output_data folders if they don't exist yet.
+This file computes these paths once (regardless of the directory `uv run ...`
+is launched from), and creates the input_data/output_data folders if they
+don't exist yet — only when the SharePoint library is actually synced on
+this computer (never on the CI runner, where it isn't).
 """
+import os
 from pathlib import Path
 
-# This file lives at <root>/scripts/config.py:
-#   parents[0] = scripts
-#   parents[1] = <project root> (.../General/Reporting_Automation/monthly_reporting)
-#   parents[2] = .../General/Reporting_Automation
-#   parents[3] = .../General
+# This file lives at <repo root>/scripts/config.py.
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+TEMPLATE_DIR = PROJECT_ROOT / "templates"
 
-MONTHLY_REPORTING_DIR = PROJECT_ROOT.parents[1] / "Monthly reporting"
+SHAREPOINT_ORG = "Bioline Agrosciences Group"
+SHAREPOINT_LIBRARY = "CSR referents - Documents"
+GENERAL_DIR = Path(os.environ.get("CSR_SHAREPOINT_GENERAL_DIR")
+                   or Path.home() / SHAREPOINT_ORG / SHAREPOINT_LIBRARY / "General")
+
+MONTHLY_REPORTING_DIR = GENERAL_DIR / "Monthly reporting"
 RAW_DATA_DIR = MONTHLY_REPORTING_DIR / "Archives"
 DATA_ENTRY_DIR = MONTHLY_REPORTING_DIR
-INPUT_DIR = PROJECT_ROOT / "input_data"
-OUTPUT_DIR = PROJECT_ROOT / "output_data"
+DATA_DIR = GENERAL_DIR / "Reporting_Automation" / "monthly_reporting"
+INPUT_DIR = DATA_DIR / "input_data"
+OUTPUT_DIR = DATA_DIR / "output_data"
 
-INPUT_DIR.mkdir(parents=True, exist_ok=True)
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+if GENERAL_DIR.is_dir():
+    INPUT_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Names of the 6 original raw Excel files, exactly as provided by Bioline.
 # Used by extract_reference_and_data.py (required) and by csr_calc_engine.py
@@ -106,7 +118,7 @@ RAW_FILES = {
 # Working hours: one fixed file, updated in place every month (wide format:
 # one row per BU, one column per month). Lives directly under General/, a
 # level up from the rest of the monthly reporting stuff.
-WORKING_HOURS_FILE = PROJECT_ROOT.parents[1] / "Working Hours 2026.xlsx"
+WORKING_HOURS_FILE = GENERAL_DIR / "Working Hours 2026.xlsx"
 
 # BlueKanGo accidents export: a NEW file each time (name carries an export
 # timestamp, e.g. "Accidents_du_travail_Bioline_20260921-165507.xlsx"), so we

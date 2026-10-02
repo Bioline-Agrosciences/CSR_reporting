@@ -9,14 +9,11 @@ wheels/
 # Virtual environments
 .venv
 
-# Real CSR data (never in git — confidential): reference list +
-# consolidated history, consolidated results. Only the macro template
-# (empty of any data) is tracked. The original raw files and the data entry
-# files live entirely outside this project, on the shared SharePoint drive
-# (see config.RAW_DATA_DIR / config.DATA_ENTRY_DIR) — nothing to ignore
-# here for those, they were never inside the repo to begin with.
-input_data/*
-!input_data/data_entry_template.xlsm
+# Real CSR data (never in git — confidential). It lives on the shared
+# SharePoint drive, not in the repo (see config.DATA_DIR) — still ignored
+# here as a safety net, in case a copy ever ends up inside a clone. The only
+# tracked workbook is the empty macro template, in templates/.
+input_data/
 output_data/
 reporting_csr_bu_collecte_automatisee.md
 CSR_referentiel_et_architecture_powerbi.md

@@ -20,7 +20,7 @@ This file reuses the logic of the old workbook (one tab per month), but:
     re-entering an empty workbook every month;
   - colors the current month's tab so the referent knows where to enter
     data. This workbook is an .xlsm built on top of TEMPLATE_PATH
-    (input_data/data_entry_template.xlsm), which carries a macro
+    (templates/data_entry_template.xlsm, in the repo), which carries a macro
     (Workbook_Open): it recolors the current month's tab and recalculates
     "Tracking" EVERY TIME the file is opened in Excel, based on today's
     date — so even if the referent hasn't had a regenerated file for
@@ -74,8 +74,9 @@ VARIATION_FILL = "FFF4C7C3"
 # recalculates "Tracking" on open, with no need to regenerate the file) —
 # see the Workbook_Open sub in its VBA project. Every data entry file is
 # built on top of this template (openpyxl keep_vba=True) to carry the macro
-# along with it.
-TEMPLATE_PATH = config.INPUT_DIR / "data_entry_template.xlsm"
+# along with it. Part of the code (versioned in the repo, empty of any data),
+# not of the SharePoint data folder.
+TEMPLATE_PATH = config.TEMPLATE_DIR / "data_entry_template.xlsm"
 
 # Context columns shown to the referent (read-only), in this order. "ID" is
 # added on top, as the first column, visible — lets the referent identify
