@@ -33,9 +33,15 @@
 # compare au Consolidated_results_CSR.xlsx local. Une fois identique :
 # OUTPUT_SUFFIX = "", retirer ces 2 requêtes du Dataflow.
 #
-# Tant que le pipeline local tourne aussi, les constantes de la cellule 2 et
-# les fonctions des cellules 3 à 6 doivent rester synchronisées avec
-# scripts/config.py et les scripts d'origine.
+# Facteurs de conversion et d'émission : lus dans input_data/CSR_parameters.xlsx
+# (un facteur par BU et par année), LE MÊME fichier que le pipeline local —
+# rien à recopier ici quand un facteur change. Recopiés en table
+# CSR_parameters pour Power BI.
+#
+# Tant que le pipeline local tourne aussi, les constantes restantes de la
+# cellule 2 (BU_COUNTRY, BU_NAME_MAP, seuil) et les fonctions des cellules 3
+# à 6 doivent rester synchronisées avec scripts/config.py et les scripts
+# d'origine.
 #
 # Lakehouse par défaut à attacher : LH_CSR_Reporting.
 
@@ -103,20 +109,12 @@ BU_LIST = ["Viridaxis", "BAF", "BFR", "BIB", "BUK", "BUS"]
 
 BU_COUNTRY = {"Viridaxis": "BE", "BAF": "KE", "BFR": "FR", "BIB": "ES", "BUK": "GB", "BUS": "US"}
 
-LPG_CONVERSION_FACTOR = {bu: 13.8 for bu in BU_LIST}   # kWh per kg of LPG
-FUEL_CONVERSION_FACTOR = {bu: 10.0 for bu in BU_LIST}  # kWh per liter of fuel
-
-ELECTRICITY_EMISSION_FACTOR = {  # tCO2/kWh
-    "Viridaxis": 0.0001325071644737640,
-    "BAF": 0.0000793441816171164,
-    "BFR": 0.0000350000000000000,
-    "BIB": 0.0001868802584036050,
-    "BUK": 0.0002096964205652360,
-    "BUS": 0.0003595537086916850,
-}
-NATURAL_GAS_EMISSION_FACTOR = {bu: 0.0002049620000000000 for bu in BU_LIST}  # tCO2/kWh
-FUEL_EMISSION_FACTOR = {bu: 0.0026187600000000000 for bu in BU_LIST}         # tCO2/L
-LPG_EMISSION_FACTOR = {bu: 0.0024154420279113500 for bu in BU_LIST}          # tCO2/kg
+# Facteurs de conversion et d'émission : PAS ici, mais dans
+# input_data/CSR_parameters.xlsx (Parameter, BU, Year, Value, Unit, Source),
+# le même fichier que lit le pipeline local — voir la cellule 5 et
+# scripts/csr_parameters.py.
+PARAMETERS_FILE = f"{PROJECT_DIR}/input_data/CSR_parameters.xlsx"
+PARAMETERS_TABLE = f"CSR_parameters{OUTPUT_SUFFIX}"
 
 VARIATION_THRESHOLD = 0.20
 
@@ -345,15 +343,83 @@ def working_days_in_month(country_code: str, year: int, month: int) -> int:
     )
 
 
+# --- Paramètres (scripts/csr_parameters.py) : un facteur par (BU, Year),
+# repli sur l'année antérieure la plus récente, jamais sur une année
+# postérieure, signalé dans les anomalies.
+PARAMETER_COLS = ["Parameter", "BU", "Year", "Value", "Unit", "Source"]
+PARAMETER_FOR_ID = {
+    "Ene.6.1": "LPG_CONVERSION_FACTOR",
+    "Ene.7.1": "FUEL_CONVERSION_FACTOR",
+    "Ene.12": "ELECTRICITY_EMISSION_FACTOR",
+    "Ene.13": "NATURAL_GAS_EMISSION_FACTOR",
+    "Ene.14": "FUEL_EMISSION_FACTOR",
+    "Ene.15": "LPG_EMISSION_FACTOR",
+}
+
+
+class MissingParameterError(LookupError):
+    pass
+
+
+def validate_parameters(parameters: pd.DataFrame) -> None:
+    missing_cols = [c for c in ["Parameter", "BU", "Year", "Value"] if c not in parameters.columns]
+    if missing_cols:
+        raise ValueError(f"CSR_parameters.xlsx: missing column(s) {missing_cols}")
+    empty = parameters[parameters["Value"].isna()]
+    if len(empty):
+        raise ValueError(f"CSR_parameters.xlsx: empty Value on row(s):\n{empty.to_string(index=False)}")
+    dupes = parameters[parameters.duplicated(["Parameter", "BU", "Year"], keep=False)]
+    if len(dupes):
+        raise ValueError(f"CSR_parameters.xlsx: more than one row for the same (Parameter, BU, Year):\n"
+                         f"{dupes.to_string(index=False)}")
+
+
+def build_parameter_index(parameters) -> dict:
+    index = {}
+    if parameters is None:
+        return index
+    for name, bu, year, value in parameters[["Parameter", "BU", "Year", "Value"]].itertuples(index=False):
+        index.setdefault((name, bu), []).append((int(year), float(value)))
+    for rows in index.values():
+        rows.sort()
+    return index
+
+
+def resolve_parameter(index: dict, name: str, bu: str, year: int):
+    candidates = [row for row in index.get((name, bu), []) if row[0] <= year]
+    if not candidates:
+        raise MissingParameterError(f"{name} for {bu}: no value for {year} or any earlier year")
+    year_used, value = candidates[-1]
+    return value, year_used
+
+
+def find_parameter_issues(parameters, raw: pd.DataFrame) -> pd.DataFrame:
+    index = build_parameter_index(parameters)
+    rows = []
+    for bu, year in sorted(set(zip(raw["BU"], raw["Year"].astype(int)))):
+        for name in sorted(set(PARAMETER_FOR_ID.values())):
+            try:
+                _, year_used = resolve_parameter(index, name, bu, year)
+            except MissingParameterError:
+                rows.append({"BU": bu, "Year": year, "Parameter": name,
+                             "Issue": "Missing: dependent indicators not computed"})
+                continue
+            if year_used != year:
+                rows.append({"BU": bu, "Year": year, "Parameter": name,
+                             "Issue": f"No {year} value, {year_used} value used instead"})
+    return pd.DataFrame(rows, columns=["BU", "Year", "Parameter", "Issue"])
+
+
+def _parameter(name):
+    def resolve(bu, year, month, parameters):
+        return resolve_parameter(parameters, name, bu, year)[0]
+    return resolve
+
+
 CONTEXTUAL_VALUES = {
-    "Ene.6.1": lambda bu, year, month: LPG_CONVERSION_FACTOR[bu],
-    "Ene.7.1": lambda bu, year, month: FUEL_CONVERSION_FACTOR[bu],
-    "Saf.4.1": lambda bu, year, month: working_days_in_month(
+    **{kpi_id: _parameter(name) for kpi_id, name in PARAMETER_FOR_ID.items()},
+    "Saf.4.1": lambda bu, year, month, parameters: working_days_in_month(
         BU_COUNTRY[bu], year, MONTH_ORDER.index(month) + 1),
-    "Ene.12": lambda bu, year, month: ELECTRICITY_EMISSION_FACTOR[bu],
-    "Ene.13": lambda bu, year, month: NATURAL_GAS_EMISSION_FACTOR[bu],
-    "Ene.14": lambda bu, year, month: FUEL_EMISSION_FACTOR[bu],
-    "Ene.15": lambda bu, year, month: LPG_EMISSION_FACTOR[bu],
 }
 
 
@@ -373,14 +439,18 @@ def compute_bu_month(raw_values: dict) -> dict:
     return values
 
 
-def run(reference: pd.DataFrame, raw: pd.DataFrame) -> pd.DataFrame:
+def run(reference: pd.DataFrame, raw: pd.DataFrame, parameters: pd.DataFrame = None) -> pd.DataFrame:
     meta = reference.set_index("ID")[["Topic", "KPI", "Unit", "Kind"]]
+    parameter_index = build_parameter_index(parameters)
     results = []
     for (bu, year, month), grp in raw.groupby(["BU", "Year", "Month"], sort=False):
         year = int(year)
         raw_values = dict(zip(grp["ID"], grp["Value"]))
         for kpi_id, contextual_fn in CONTEXTUAL_VALUES.items():
-            raw_values[kpi_id] = contextual_fn(bu, year, month)
+            try:
+                raw_values[kpi_id] = contextual_fn(bu, year, month, parameter_index)
+            except MissingParameterError:
+                continue  # facteur absent -> indicateurs dépendants non calculés, signalé dans CSR_anomalies
         computed = compute_bu_month(raw_values)
         for kpi_id, value in computed.items():
             if kpi_id not in meta.index:
@@ -463,14 +533,15 @@ def find_large_variations(consolidated: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_anomalies_table(raw: pd.DataFrame, consolidated: pd.DataFrame, reference: pd.DataFrame,
-                          current_year: int, current_month: str) -> pd.DataFrame:
-    """Les 3 contrôles du rapport local, empilés dans UNE table longue
+                          current_year: int, current_month: str, parameters: pd.DataFrame) -> pd.DataFrame:
+    """Les 4 contrôles du rapport local, empilés dans UNE table longue
     (Check, BU, Year, Month, ID, Value, Detail) — c'est elle que le pipeline
     lira pour composer le mail (compte par BU = un simple groupby)."""
     input_ids = set(reference[reference.Kind == "input"]["ID"])
     quality = find_data_quality_notes(raw)
     missing = find_missing_values(raw, input_ids, current_year, current_month)
     variations = find_large_variations(consolidated)
+    param_issues = find_parameter_issues(parameters, raw)
 
     parts = [
         pd.DataFrame({"Check": "Data quality", "BU": quality["BU"], "Year": quality["Year"],
@@ -485,6 +556,9 @@ def build_anomalies_table(raw: pd.DataFrame, consolidated: pd.DataFrame, referen
                       "Detail": (variations["From"].astype(str) + ": " + variations["From value"].astype(str)
                                  + " -> " + variations["To"].astype(str) + ": "
                                  + variations["To value"].astype(str) + " (" + variations["Variation"] + ")")}),
+        pd.DataFrame({"Check": "Parameter", "BU": param_issues["BU"], "Year": param_issues["Year"],
+                      "Month": None, "ID": param_issues["Parameter"], "Value": np.nan,
+                      "Detail": param_issues["Issue"]}),
     ]
     out = pd.concat([p for p in parts if not p.empty], ignore_index=True) if any(not p.empty for p in parts) \
         else pd.DataFrame(columns=["Check", "BU", "Year", "Month", "ID", "Value", "Detail"])
@@ -514,6 +588,11 @@ RESULTS_SCHEMA = StructType([
 COMPLETION_SCHEMA = StructType([
     StructField("BU", StringType()), StructField("Year", IntegerType()),
     StructField("Month", StringType()), StructField("completion_percent", IntegerType()),
+])
+PARAMETERS_SCHEMA = StructType([
+    StructField("Parameter", StringType()), StructField("BU", StringType()),
+    StructField("Year", IntegerType()), StructField("Value", DoubleType()),
+    StructField("Unit", StringType()), StructField("Source", StringType()),
 ])
 ANOMALIES_SCHEMA = StructType([
     StructField("Check", StringType()), StructField("BU", StringType()),
@@ -571,6 +650,8 @@ def upsert(existing: pd.DataFrame, new: pd.DataFrame) -> pd.DataFrame:
 # Cell 8 — exécution : intégration des 6 BU + Safety, calcul, écriture
 # --------------------------------------------------------------------------
 reference = pd.read_excel(REFERENCE_FILE, sheet_name="Reference")
+parameters = pd.read_excel(PARAMETERS_FILE, sheet_name="Parameters")
+validate_parameters(parameters)
 raw = load_raw()
 
 # 1. Fichiers de saisie des référents (integrate_data_entry.py)
@@ -604,10 +685,10 @@ raw = upsert(raw, pd.concat([working_hours_df, accidents_df, saf1_df], ignore_in
 write_table(raw, RAW_TABLE, RAW_SCHEMA)
 
 # 3. Calcul (csr_calc_engine.py)
-consolidated = run(reference, raw)
+consolidated = run(reference, raw, parameters)
 completion = build_completion_table(raw, reference, TARGET_YEAR)
 completion.insert(1, "Year", TARGET_YEAR)
-anomalies = build_anomalies_table(raw, consolidated, reference, TARGET_YEAR, CURRENT_MONTH)
+anomalies = build_anomalies_table(raw, consolidated, reference, TARGET_YEAR, CURRENT_MONTH, parameters)
 
 print(f"\n{len(consolidated)} rows computed for {raw.BU.nunique()} BUs, {raw.Year.nunique()} year(s) "
       f"({consolidated.Value.notna().sum()} non-empty values).")
@@ -617,6 +698,7 @@ print(anomalies.groupby(["BU", "Check"]).size().unstack(fill_value=0).to_string(
 
 write_table(consolidated.assign(Month=consolidated["Month"].astype(str)), RESULTS_TABLE, RESULTS_SCHEMA)
 write_table(completion, COMPLETION_TABLE, COMPLETION_SCHEMA)
+write_table(parameters.reindex(columns=PARAMETER_COLS), PARAMETERS_TABLE, PARAMETERS_SCHEMA)  # pour Power BI
 write_table(anomalies, ANOMALIES_TABLE, ANOMALIES_SCHEMA, mode="append")
 
 # --------------------------------------------------------------------------

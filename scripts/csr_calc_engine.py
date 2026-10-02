@@ -66,7 +66,10 @@ To add a new (additive) calculated indicator:
 
 To add a new contextual value (a constant or something derivable from
 BU/year/month alone, never from other entered values): add an entry to
-CONTEXTUAL_VALUES instead — "My.ID": lambda bu, year, month: ...
+CONTEXTUAL_VALUES instead — "My.ID": lambda bu, year, month, parameters: ...
+If it's a factor that can change over time (like the emission factors),
+add it to input_data/CSR_parameters.xlsx and csr_parameters.PARAMETER_FOR_ID
+instead of hardcoding it — see csr_parameters.py.
 
 Usage
 -----
@@ -93,6 +96,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config
 import consolidation_report
+import csr_parameters
 
 REFERENCE_PATH = config.INPUT_DIR / "Indicator_reference_CSR.xlsx"
 RESULT_PATH = config.OUTPUT_DIR / "Consolidated_results_CSR.xlsx"
@@ -186,20 +190,24 @@ def working_days_in_month(country_code: str, year: int, month: int) -> int:
 # runs (see run()) — so FORMULAS entries that already reference them (Ene.9
 # uses Ene.6.1/Ene.7.1) keep working unchanged, now resolving to these
 # instead of to a hand-typed value.
+#
+# The conversion factors (Ene.6.1, Ene.7.1) and CO2 emission factors
+# (Ene.12-15, feeding Carb.1-5) come from input_data/CSR_parameters.xlsx,
+# per (BU, Year) — not from config.py anymore (02/10/2026, see
+# csr_parameters.py). `parameters` is the index built once per run by
+# csr_parameters.build_parameter_index.
+def _parameter(name):
+    def resolve(bu, year, month, parameters):
+        return csr_parameters.resolve_parameter(parameters, name, bu, year)[0]
+    return resolve
+
+
 CONTEXTUAL_VALUES = {
-    "Ene.6.1": lambda bu, year, month: config.LPG_CONVERSION_FACTOR[bu],
-    "Ene.7.1": lambda bu, year, month: config.FUEL_CONVERSION_FACTOR[bu],
+    **{kpi_id: _parameter(name) for kpi_id, name in csr_parameters.PARAMETER_FOR_ID.items()},
     # `month` arrives as a name ("January"), same as everywhere else in this
     # pipeline — working_days_in_month needs the 1-12 number instead.
-    "Saf.4.1": lambda bu, year, month: working_days_in_month(
+    "Saf.4.1": lambda bu, year, month, parameters: working_days_in_month(
         config.BU_COUNTRY[bu], year, MONTH_ORDER.index(month) + 1),
-    # CO2 emission factors (25/09/2026) — per-BU constants (electricity varies
-    # by country's grid mix; the other 3 happen to be identical across BUs
-    # today), feeding the Carb.1-5 formulas above. Never hand-typed.
-    "Ene.12": lambda bu, year, month: config.ELECTRICITY_EMISSION_FACTOR[bu],
-    "Ene.13": lambda bu, year, month: config.NATURAL_GAS_EMISSION_FACTOR[bu],
-    "Ene.14": lambda bu, year, month: config.FUEL_EMISSION_FACTOR[bu],
-    "Ene.15": lambda bu, year, month: config.LPG_EMISSION_FACTOR[bu],
 }
 
 
@@ -279,7 +287,7 @@ def build_completion_table(raw: pd.DataFrame, reference: pd.DataFrame, current_y
     return pd.DataFrame(rows)
 
 
-def run(reference: pd.DataFrame, raw: pd.DataFrame) -> pd.DataFrame:
+def run(reference: pd.DataFrame, raw: pd.DataFrame, parameters: pd.DataFrame = None) -> pd.DataFrame:
     """Computes the full reporting: for every BU, year and month present in
     the raw data, computes every "calculated" indicator from the entered
     values (via compute_bu_month — formulas never mix values from two
@@ -287,13 +295,23 @@ def run(reference: pd.DataFrame, raw: pd.DataFrame) -> pd.DataFrame:
     gathers everything — entered, calculated, AND contextual (see
     CONTEXTUAL_VALUES) — into a single consolidated table, sorted by BU /
     year / month / indicator. This is the table that main() then writes to
-    output_data/Consolidated_results_CSR.xlsx."""
+    output_data/Consolidated_results_CSR.xlsx.
+
+    `parameters` is the content of CSR_parameters.xlsx (see
+    csr_parameters.load_parameters). A factor missing for a (BU, Year) is
+    simply not injected: the indicators depending on it are then left out
+    (like any other missing input), and the anomaly report flags it."""
     meta = reference.set_index("ID")[["Topic", "KPI", "Unit", "Kind"]]
+    parameter_index = csr_parameters.build_parameter_index(parameters)
     results = []
     for (bu, year, month), grp in raw.groupby(["BU", "Year", "Month"], sort=False):
+        year = int(year)
         raw_values = dict(zip(grp["ID"], grp["Value"]))
         for kpi_id, contextual_fn in CONTEXTUAL_VALUES.items():
-            raw_values[kpi_id] = contextual_fn(bu, year, month)
+            try:
+                raw_values[kpi_id] = contextual_fn(bu, year, month, parameter_index)
+            except csr_parameters.MissingParameterError:
+                continue
         computed = compute_bu_month(raw_values)
         for kpi_id, value in computed.items():
             if kpi_id not in meta.index:
@@ -385,8 +403,9 @@ def main():
     integrate_data_entry.py and integrate_safety_data.py)."""
     reference = load_reference_data()
     raw = load_all_raw_data()
+    parameters = csr_parameters.load_parameters()
 
-    consolidated = run(reference, raw)
+    consolidated = run(reference, raw, parameters)
     print(f"{len(consolidated)} rows computed in total for {raw.BU.nunique()} BUs, "
           f"{raw.Year.nunique()} year(s) ({consolidated.Value.notna().sum()} non-empty values).")
 
@@ -399,7 +418,8 @@ def main():
 
     current_year = date.today().year
     current_month = MONTH_ORDER[date.today().month - 1]
-    consolidation_report.run_and_send(raw, consolidated, reference, current_year, current_month)
+    consolidation_report.run_and_send(raw, consolidated, reference, current_year, current_month,
+                                      parameters=parameters)
 
     completion = build_completion_table(raw, reference, current_year)
     with pd.ExcelWriter(RESULT_PATH) as writer:

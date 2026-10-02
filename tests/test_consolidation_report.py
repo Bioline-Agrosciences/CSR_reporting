@@ -126,6 +126,19 @@ def test_build_summary_table_counts_per_bu_including_zeroes():
     assert (bfr["Data quality"], bfr["Missing values"], bfr["Large variations"]) == (0, 0, 0)
 
 
+def test_build_summary_table_and_body_report_parameter_issues():
+    empty = pd.DataFrame(columns=["BU"])
+    parameter_issues = pd.DataFrame([{"BU": "BFR", "Year": 2027, "Parameter": "ELECTRICITY_EMISSION_FACTOR",
+                                       "Issue": "No 2027 value, 2026 value used instead"}])
+
+    table = report.build_summary_table(empty, empty, empty, bus=["BAF", "BFR"], parameter_issues=parameter_issues)
+    body = report.build_email_body(table, current_year=2027, current_month="January", attachment_name=None)
+
+    assert table.set_index("BU")["Parameters"].to_dict() == {"BAF": 0, "BFR": 1}
+    assert "No anomaly found" not in body
+    assert "1 parameter issue(s)" in body
+
+
 def test_build_email_body_reports_no_anomaly_when_everything_is_empty():
     table = report.build_summary_table(pd.DataFrame(columns=["BU"]), pd.DataFrame(columns=["BU"]),
                                         pd.DataFrame(columns=["BU"]), bus=["BAF"])

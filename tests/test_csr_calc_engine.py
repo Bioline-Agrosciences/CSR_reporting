@@ -72,6 +72,12 @@ def test_contextual_values_covers_exactly_the_reclassified_and_emission_factor_i
     }
 
 
+def _parameters(*rows):
+    """A CSR_parameters.xlsx-shaped DataFrame: rows are (Parameter, BU, Year, Value)."""
+    return pd.DataFrame([{"Parameter": p, "BU": bu, "Year": y, "Value": v, "Unit": "", "Source": ""}
+                         for p, bu, y, v in rows], columns=["Parameter", "BU", "Year", "Value", "Unit", "Source"])
+
+
 def test_run_injects_contextual_conversion_factor():
     reference = pd.DataFrame([
         {"ID": "Ene.6.1", "Topic": "Energy consumption", "KPI": "Conversion factor LPG",
@@ -81,10 +87,10 @@ def test_run_injects_contextual_conversion_factor():
     # Ene.6.1 doesn't depend on anything entered, it's injected regardless.
     raw = pd.DataFrame([{"BU": "BAF", "Year": 2026, "Month": "January", "ID": "Ene.1", "Value": 1.0}])
 
-    out = engine.run(reference, raw)
+    out = engine.run(reference, raw, _parameters(("LPG_CONVERSION_FACTOR", "BAF", 2026, 13.8)))
 
     ene61 = out[out.ID == "Ene.6.1"].iloc[0]
-    assert ene61["Value"] == pytest.approx(config.LPG_CONVERSION_FACTOR["BAF"])
+    assert ene61["Value"] == pytest.approx(13.8)
 
 
 def test_run_injects_contextual_working_days_per_bu_country():
@@ -113,12 +119,60 @@ def test_run_injects_contextual_electricity_emission_factor_varies_by_country():
         {"BU": "BFR", "Year": 2026, "Month": "January", "ID": "Ene.1", "Value": 1.0},
     ])
 
-    out = engine.run(reference, raw)
+    out = engine.run(reference, raw, _parameters(("ELECTRICITY_EMISSION_FACTOR", "BAF", 2026, 0.00008),
+                                                 ("ELECTRICITY_EMISSION_FACTOR", "BFR", 2026, 0.000035)))
 
     ene12_by_bu = out[out.ID == "Ene.12"].set_index("BU")["Value"]
-    assert ene12_by_bu["BAF"] == pytest.approx(config.ELECTRICITY_EMISSION_FACTOR["BAF"])
-    assert ene12_by_bu["BFR"] == pytest.approx(config.ELECTRICITY_EMISSION_FACTOR["BFR"])
-    assert ene12_by_bu["BAF"] != ene12_by_bu["BFR"]
+    assert ene12_by_bu["BAF"] == pytest.approx(0.00008)
+    assert ene12_by_bu["BFR"] == pytest.approx(0.000035)
+
+
+def test_run_uses_each_years_own_emission_factor():
+    # The reason factors are keyed by Year (02/10/2026): publishing a new
+    # 2027 factor must NOT recompute 2026's already-published emissions.
+    reference = pd.DataFrame([
+        {"ID": "Carb.1", "Topic": "Energy", "KPI": "CO2 emissions - Electricity", "Unit": "tCO2",
+         "Kind": "calculated"},
+    ])
+    raw = pd.DataFrame([
+        {"BU": "BFR", "Year": 2026, "Month": "January", "ID": "Ene.1", "Value": 1000.0},
+        {"BU": "BFR", "Year": 2027, "Month": "January", "ID": "Ene.1", "Value": 1000.0},
+    ])
+    parameters = _parameters(("ELECTRICITY_EMISSION_FACTOR", "BFR", 2026, 0.000035),
+                             ("ELECTRICITY_EMISSION_FACTOR", "BFR", 2027, 0.000050))
+
+    out = engine.run(reference, raw, parameters)
+
+    carb1_by_year = out[out.ID == "Carb.1"].set_index("Year")["Value"]
+    assert carb1_by_year[2026] == pytest.approx(1000 * 0.000035)
+    assert carb1_by_year[2027] == pytest.approx(1000 * 0.000050)
+
+
+def test_run_carries_the_latest_earlier_factor_over_to_a_year_without_one():
+    reference = pd.DataFrame([
+        {"ID": "Ene.12", "Topic": "Energy", "KPI": "Electricity - FE", "Unit": "tCO2/kWh", "Kind": "calculated"},
+    ])
+    raw = pd.DataFrame([{"BU": "BFR", "Year": 2027, "Month": "January", "ID": "Ene.1", "Value": 1.0}])
+
+    out = engine.run(reference, raw, _parameters(("ELECTRICITY_EMISSION_FACTOR", "BFR", 2026, 0.000035)))
+
+    assert out[out.ID == "Ene.12"].iloc[0]["Value"] == pytest.approx(0.000035)
+
+
+def test_run_leaves_dependent_indicators_out_when_a_factor_is_missing():
+    # No ELECTRICITY_EMISSION_FACTOR at all: Ene.12 isn't injected, so
+    # Carb.1 can't be computed — left out (and flagged by the anomaly
+    # report), never silently computed as Ene.1 * 0.
+    reference = pd.DataFrame([
+        {"ID": "Ene.1", "Topic": "Energy", "KPI": "Electricity", "Unit": "kWh", "Kind": "input"},
+        {"ID": "Carb.1", "Topic": "Energy", "KPI": "CO2 emissions - Electricity", "Unit": "tCO2",
+         "Kind": "calculated"},
+    ])
+    raw = pd.DataFrame([{"BU": "BFR", "Year": 2026, "Month": "January", "ID": "Ene.1", "Value": 1000.0}])
+
+    out = engine.run(reference, raw, _parameters())
+
+    assert set(out.ID) == {"Ene.1"}
 
 
 # ---------------------------------------------------------------------------
