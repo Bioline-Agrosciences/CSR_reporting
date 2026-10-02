@@ -51,10 +51,9 @@ Sales (decision of 23/09/2026):**
   in the month) used to be hand-typed every month, but nothing was actually
   keeping them up to date. They're now computed fresh on every run instead
   (`csr_calc_engine.py`'s `CONTEXTUAL_VALUES`): the two conversion factors
-  come straight from `config.py` (`LPG_CONVERSION_FACTOR`,
-  `FUEL_CONVERSION_FACTOR` — one value per BU, so a single BU can be
-  corrected later without touching the others, even though every BU uses
-  the same value today), and Saf.4.1 from a public-holiday-aware calendar
+  come from `input_data/CSR_parameters.xlsx` (`LPG_CONVERSION_FACTOR`,
+  `FUEL_CONVERSION_FACTOR` — one value per BU and per year, see
+  "Emission and conversion factors" below), and Saf.4.1 from a public-holiday-aware calendar
   count (the `holidays` package) for the country each BU reports from
   (`config.BU_COUNTRY`).
 
@@ -71,20 +70,54 @@ total, unlike a ratio.
 - `Carb.1 = Ene.1 * Ene.12` (electricity), `Carb.2 = Ene.5 * Ene.13`
   (natural gas), `Carb.3 = Ene.7 * Ene.14` (fuel), `Carb.4 = Ene.6 * Ene.15`
   (LPG), `Carb.5 = Carb.1 + Carb.2 + Carb.3 + Carb.4` (total).
-- Ene.12-15 are per-BU CO2 emission factors, from `config.py`
-  (`ELECTRICITY_EMISSION_FACTOR`, `NATURAL_GAS_EMISSION_FACTOR`,
-  `FUEL_EMISSION_FACTOR`, `LPG_EMISSION_FACTOR`) — electricity genuinely
-  varies by country (grid mix), the other 3 happen to be identical across
-  BUs today but are still a dict per BU, same reasoning as the conversion
-  factors above.
+- Ene.12-15 are per-BU CO2 emission factors, from
+  `input_data/CSR_parameters.xlsx` (`ELECTRICITY_EMISSION_FACTOR`,
+  `NATURAL_GAS_EMISSION_FACTOR`, `FUEL_EMISSION_FACTOR`,
+  `LPG_EMISSION_FACTOR`) — electricity genuinely varies by country (grid
+  mix), the other 3 happen to be identical across BUs today but still have
+  one row per BU.
+
+**Emission and conversion factors — `input_data/CSR_parameters.xlsx`
+(02/10/2026):** these 6 factors used to be hardcoded in `config.py` (and
+copied by hand into the Fabric notebook). They now live in one Excel file,
+sheet "Parameters", one row per (Parameter, BU, Year) with its Unit and
+Source — read by both the local pipeline and the Fabric notebook (through
+the OneLake shortcut), see `scripts/csr_parameters.py`.
+- **Keyed by Year** so that publishing a new year's factor never recomputes
+  the previous years' already-published emissions. To update a factor for a
+  new year, ADD rows with the new Year — never edit last year's rows.
+- A year with no row of its own reuses the most recent earlier year's value
+  (never a later one) — and the anomaly report flags it ("Parameters"
+  column), so a carried-over factor is never silent. A factor missing
+  altogether leaves the indicators depending on it empty (and flagged),
+  never computed with a 0.
+- Created once by `scripts/migrate_2026_10_create_parameters_file.py`, from
+  the values `config.py` held until then (Year=2026).
 
 ## The pipeline
 
-Folders used by the pipeline are deliberately **not inside this
-project** — they live directly on the shared SharePoint drive instead (this
-whole project already sits inside the same synced library), so nothing
-ever needs to be copied in or sent out by hand:
+**The code and the data live in two different places (02/10/2026):**
 
+- **The code** (this repo) is cloned on the local disk, outside OneDrive —
+  e.g. `C:\Users\<me>\Documents\CSR\monthly_reporting`. Inside a
+  OneDrive-synced folder, OneDrive locks files mid-sync and breaks `uv sync`
+  on the `.venv` ("Accès refusé", os error 5).
+- **The data** stays on the shared SharePoint library "CSR referents",
+  synced by OneDrive, under its `General/` folder (`config.GENERAL_DIR`,
+  found from the user's home folder:
+  `C:\Users\<me>\Bioline Agrosciences Group\CSR referents - Documents\General`
+  — override with the `CSR_SHAREPOINT_GENERAL_DIR` environment variable if
+  it's synced elsewhere). The library must be synced on the computer
+  ("Sync" in SharePoint) for the pipeline to run.
+
+Folders used by the pipeline, all on that SharePoint drive — nothing ever
+needs to be copied in or sent out by hand:
+
+- `config.INPUT_DIR` / `config.OUTPUT_DIR` =
+  `.../General/Reporting_Automation/monthly_reporting/input_data/` and
+  `.../output_data/` (the "database" the pipeline runs on, and its results —
+  same place as before the code moved out, so the Fabric shortcut paths
+  didn't change)
 - `config.RAW_DATA_DIR` = `.../General/Monthly reporting/Archives/`
 - `config.DATA_ENTRY_DIR` = `.../General/Monthly reporting/`
 - `config.WORKING_HOURS_FILE` = `.../General/Working Hours 2026.xlsx` (the
@@ -148,16 +181,14 @@ below) rather than a single file reused forever.
 
 | Folder / file | What it holds |
 |---|---|
-| `input_data/` | The indicator reference list + the consolidated raw data, all BUs. The "database" the pipeline runs on. Never committed to git, except the empty macro template. |
-| `output_data/` | The final consolidated results + the anomaly report attachment. Never committed to git. |
 | `scripts/` | All the code. Not a Python package on purpose — just scripts you run directly with `uv run`. |
+| `templates/` | The empty `.xlsm` macro template every data entry file is built on (no data in it). |
 | `tests/` | Automated tests (pytest) for the logic in `scripts/`. |
 | `.github/workflows/` | CI: runs the test suite on every push/PR. |
 
-The original raw workbooks and the data entry files are **not** in this
-project — see `scripts/config.py` for `RAW_DATA_DIR` and `DATA_ENTRY_DIR`,
-both pointing directly at the shared SharePoint drive. Same for
-`WORKING_HOURS_FILE` and `ACCIDENTS_DIR`.
+No data is in this repo: `input_data/`, `output_data/`, the original raw
+workbooks, the data entry files, the Working Hours file and the BlueKanGo
+export all live on the shared SharePoint drive — see `scripts/config.py`.
 
 ## Getting started
 
@@ -165,7 +196,13 @@ Requirements: [uv](https://docs.astral.sh/uv/) (Python package/version
 manager). uv takes care of installing the right Python version and
 dependencies.
 
+Clone the repo on the local disk (NOT inside a OneDrive/SharePoint folder),
+and make sure the "CSR referents" SharePoint library is synced on the
+computer (see above):
+
 ```
+git clone https://github.com/Bioline-Agrosciences/CSR_reporting.git C:\Users\<me>\Documents\CSR\monthly_reporting
+cd C:\Users\<me>\Documents\CSR\monthly_reporting
 uv sync
 ```
 
@@ -261,11 +298,10 @@ on its next run — nothing else to change.
 
 ## Data confidentiality
 
-Real Bioline data never gets committed to git — the raw workbooks and data
-entry files live entirely outside the project (on the shared SharePoint
-drive, see above), and `input_data/`/`output_data/` are excluded (see
-`.gitignore`), except for the empty macro template. Only code, tests, and
-configuration are tracked.
+Real Bioline data never gets committed to git — all of it lives on the
+shared SharePoint drive, outside the repo (see above), and `input_data/`/
+`output_data/` are still excluded in `.gitignore` as a safety net. Only
+code, tests, configuration and the empty macro template are tracked.
 
 ## Anomaly report email
 
@@ -316,6 +352,23 @@ GitHub Actions (see `.github/workflows/tests.yml`).
   indicators (Ene.12-15, Carb.1-5) that were omitted from the initial
   extraction (backed up first). No change needed to `Raw_data_CSR.xlsx` —
   none of these 9 are ever hand-entered.
+- `scripts/migrate_2026_10_create_parameters_file.py` — one-time setup for
+  the 02/10/2026 decision above: creates `input_data/CSR_parameters.xlsx`
+  from the factors previously in `config.py`. Never overwrites an existing
+  file. Must be run once before the next `csr_calc_engine.py` run.
+- `scripts/nb_consolidate_csr_data.py` — not run from here at all (a
+  Fabric notebook, kept in this repo for reference and version history):
+  the same consolidation as steps 3-5 of the monthly cycle
+  (`integrate_data_entry.py` + `integrate_safety_data.py` +
+  `csr_calc_engine.py`), run in Fabric. Reads the 6 data entry files, the
+  Working Hours file, the latest BlueKanGo export, the reference list and
+  `CSR_parameters.xlsx` live from SharePoint through a OneLake shortcut
+  (`LH_CSR_Reporting/Files/sp_csr_general` = `Shared Documents/General` of
+  the CSRreferents site), and writes Delta tables (`CSR_raw_data`,
+  `CSR_indicators_report`, `CSR_completion_tracking`, `CSR_parameters`,
+  `CSR_anomalies`). Output tables are suffixed `_nb` during the double run
+  so they never overwrite the Dataflow's; its last cell compares against
+  `Consolidated_results_CSR.xlsx`.
 - `scripts/nb_consolidate_sap_and_csr_data.py` — not run from here at all
   (a Fabric/Spark notebook, kept in this repo for reference and version
   history): recomputes the 7 ratio indicators and joins the real Sales/SAP

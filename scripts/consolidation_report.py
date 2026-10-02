@@ -16,6 +16,10 @@ rather than a vague "does this look weird" judgment call:
      cells red in the data entry file's "Annual summary" tab, applied here
      to the full consolidated result (entered AND calculated indicators),
      across the whole year.
+  4. Parameters (02/10/2026) — an emission/conversion factor from
+     CSR_parameters.xlsx carried over from an earlier year, or missing
+     altogether, for a (BU, Year) — see csr_parameters.find_parameter_issues.
+     Only reported when run_and_send is given the parameters.
 
 Checks 2 and 3 run over the full year, which can turn up hundreds of rows —
 too much to read inline in an email. The email body only carries a per-BU
@@ -43,6 +47,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config
+import csr_parameters
 
 MONTH_ORDER = ["January", "February", "March", "April", "May", "June", "July",
                "August", "September", "October", "November", "December"]
@@ -110,15 +115,26 @@ def find_large_variations(consolidated: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_summary_table(quality_notes: pd.DataFrame, missing_values: pd.DataFrame,
-                         large_variations: pd.DataFrame, bus: list) -> pd.DataFrame:
+                         large_variations: pd.DataFrame, bus: list,
+                         parameter_issues: pd.DataFrame = None) -> pd.DataFrame:
     """One row per BU (every BU passed in `bus`, even ones with zero
     anomalies — a clean BU is worth seeing too), with a count for each of
-    the three checks."""
+    the checks ("Parameters" only when `parameter_issues` is given)."""
     table = pd.DataFrame({"BU": bus})
     table["Data quality"] = table["BU"].map(quality_notes.groupby("BU").size()).fillna(0).astype(int)
     table["Missing values"] = table["BU"].map(missing_values.groupby("BU").size()).fillna(0).astype(int)
     table["Large variations"] = table["BU"].map(large_variations.groupby("BU").size()).fillna(0).astype(int)
+    if parameter_issues is not None:
+        table["Parameters"] = table["BU"].map(parameter_issues.groupby("BU").size()).fillna(0).astype(int)
     return table
+
+
+def _total_parameters(summary_table: pd.DataFrame) -> int:
+    return int(summary_table["Parameters"].sum()) if "Parameters" in summary_table.columns else 0
+
+
+_PARAMETERS_LINE = ("{n} parameter issue(s): an emission/conversion factor from CSR_parameters.xlsx "
+                    "carried over from an earlier year, or missing.")
 
 
 def build_email_body(summary_table: pd.DataFrame, current_year: int, current_month: str,
@@ -135,8 +151,9 @@ def build_email_body(summary_table: pd.DataFrame, current_year: int, current_mon
     total_quality = int(summary_table["Data quality"].sum())
     total_missing = int(summary_table["Missing values"].sum())
     total_variations = int(summary_table["Large variations"].sum())
+    total_parameters = _total_parameters(summary_table)
 
-    if not (total_quality or total_missing or total_variations):
+    if not (total_quality or total_missing or total_variations or total_parameters):
         lines.append("No anomaly found this month.")
         return "\n".join(lines)
 
@@ -146,6 +163,8 @@ def build_email_body(summary_table: pd.DataFrame, current_year: int, current_mon
     lines.append(f"Totals: {total_quality} data quality flag(s), {total_missing} missing value(s), "
                  f"{total_variations} large variation(s) (month-over-month, > "
                  f"{round(config.VARIATION_THRESHOLD * 100)}%).")
+    if total_parameters:
+        lines.append(_PARAMETERS_LINE.format(n=total_parameters))
     if attachment_name:
         lines.append(f"Full row-by-row detail attached ({attachment_name}).")
 
@@ -188,11 +207,12 @@ def build_email_html(summary_table: pd.DataFrame, current_year: int, current_mon
     total_quality = int(summary_table["Data quality"].sum())
     total_missing = int(summary_table["Missing values"].sum())
     total_variations = int(summary_table["Large variations"].sum())
+    total_parameters = _total_parameters(summary_table)
 
     parts = [f'<p style="font-family:Calibri,Arial,sans-serif;font-size:15px;">'
              f'<b>CSR consolidation report — {current_month} {current_year}</b></p>']
 
-    if not (total_quality or total_missing or total_variations):
+    if not (total_quality or total_missing or total_variations or total_parameters):
         parts.append('<p style="font-family:Calibri,Arial,sans-serif;font-size:13px;">'
                       'No anomaly found this month.</p>')
         return "".join(parts)
@@ -205,6 +225,9 @@ def build_email_html(summary_table: pd.DataFrame, current_year: int, current_mon
         f'{total_variations} large variation(s) (month-over-month, &gt; '
         f'{round(config.VARIATION_THRESHOLD * 100)}%).</p>'
     )
+    if total_parameters:
+        parts.append(f'<p style="font-family:Calibri,Arial,sans-serif;font-size:13px;">'
+                      f'{_PARAMETERS_LINE.format(n=total_parameters)}</p>')
     if attachment_name:
         parts.append(f'<p style="font-family:Calibri,Arial,sans-serif;font-size:13px;">'
                       f'Full row-by-row detail attached ({attachment_name}).</p>')
@@ -213,7 +236,8 @@ def build_email_html(summary_table: pd.DataFrame, current_year: int, current_mon
 
 
 def write_detail_workbook(quality_notes: pd.DataFrame, missing_values: pd.DataFrame,
-                           large_variations: pd.DataFrame, path) -> None:
+                           large_variations: pd.DataFrame, path,
+                           parameter_issues: pd.DataFrame = None) -> None:
     """Writes the full row-by-row detail behind the email's summary counts,
     one sheet per check, so the inbox stays readable while the detail is
     still one click away."""
@@ -221,6 +245,8 @@ def write_detail_workbook(quality_notes: pd.DataFrame, missing_values: pd.DataFr
         quality_notes.to_excel(writer, sheet_name="Data quality", index=False)
         missing_values.to_excel(writer, sheet_name="Missing values", index=False)
         large_variations.to_excel(writer, sheet_name="Large variations", index=False)
+        if parameter_issues is not None and len(parameter_issues):
+            parameter_issues.to_excel(writer, sheet_name="Parameters", index=False)
 
 
 def send_report_email(subject: str, html_body: str, attachment_path=None) -> bool:
@@ -274,7 +300,7 @@ def send_report_email(subject: str, html_body: str, attachment_path=None) -> boo
 
 
 def run_and_send(raw: pd.DataFrame, consolidated: pd.DataFrame, reference: pd.DataFrame,
-                  current_year: int, current_month: str) -> str:
+                  current_year: int, current_month: str, parameters: pd.DataFrame = None) -> str:
     """Builds the anomaly report from this run's data, prints the plain-text
     version to the console, writes the detail workbook (only if there's
     something to show), and emails the HTML version (a real table, see
@@ -289,18 +315,21 @@ def run_and_send(raw: pd.DataFrame, consolidated: pd.DataFrame, reference: pd.Da
     quality_notes = find_data_quality_notes(raw)
     missing_values = find_missing_values(raw, input_ids, current_year, current_month)
     large_variations = find_large_variations(consolidated)
+    parameter_issues = csr_parameters.find_parameter_issues(parameters, raw) if parameters is not None else None
 
     bus = sorted(raw["BU"].unique())
-    summary_table = build_summary_table(quality_notes, missing_values, large_variations, bus)
+    summary_table = build_summary_table(quality_notes, missing_values, large_variations, bus, parameter_issues)
 
-    has_anomalies = bool(len(quality_notes) or len(missing_values) or len(large_variations))
+    has_anomalies = bool(len(quality_notes) or len(missing_values) or len(large_variations)
+                         or (parameter_issues is not None and len(parameter_issues)))
     attachment_path = None
     if has_anomalies:
         # Timestamped (not overwritten every run) so past reports stay
         # around as a record of what was flagged and when, rather than only
         # ever showing the latest run's snapshot.
         attachment_path = config.OUTPUT_DIR / f"Anomaly_report_CSR_{date.today().isoformat()}.xlsx"
-        write_detail_workbook(quality_notes, missing_values, large_variations, attachment_path)
+        write_detail_workbook(quality_notes, missing_values, large_variations, attachment_path,
+                              parameter_issues)
 
     attachment_name = attachment_path.name if attachment_path else None
 

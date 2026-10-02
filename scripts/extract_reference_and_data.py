@@ -152,7 +152,7 @@ EXCLUDED_IDS = {"Env.1", "Saf.4"}
 CARBON_INDICATORS = [
     {"ID": "Ene.12", "Topic": "Energy", "KPI": "Electricity - FE", "Unit": "tCO2/kWh",
      "Kind": "calculated", "Responsible": "CSO",
-     "Formula (documentation)": "Constant: config.ELECTRICITY_EMISSION_FACTOR[BU] "
+     "Formula (documentation)": "CSR_parameters.xlsx: ELECTRICITY_EMISSION_FACTOR (per BU and Year) "
                                  "(varies by country's grid mix)",
      "Definition": "CO2 emission factor for electricity, per BU's country grid mix.",
      "Calculation detail": "", "Consistency check": "",
@@ -160,19 +160,19 @@ CARBON_INDICATORS = [
      "Notes": ""},
     {"ID": "Ene.13", "Topic": "Energy", "KPI": "Natural Gas - FE", "Unit": "tCO2/kWh",
      "Kind": "calculated", "Responsible": "CSO",
-     "Formula (documentation)": "Constant: config.NATURAL_GAS_EMISSION_FACTOR[BU]",
+     "Formula (documentation)": "CSR_parameters.xlsx: NATURAL_GAS_EMISSION_FACTOR (per BU and Year)",
      "Definition": "CO2 emission factor for natural gas.",
      "Calculation detail": "", "Consistency check": "",
      "Source of data": "Group CSR indicator framework, provided 25/09/2026.", "Notes": ""},
     {"ID": "Ene.14", "Topic": "Energy", "KPI": "Fioul - average FE", "Unit": "tCO2/L",
      "Kind": "calculated", "Responsible": "CSO",
-     "Formula (documentation)": "Constant: config.FUEL_EMISSION_FACTOR[BU]",
+     "Formula (documentation)": "CSR_parameters.xlsx: FUEL_EMISSION_FACTOR (per BU and Year)",
      "Definition": "CO2 emission factor for fuel (fioul).",
      "Calculation detail": "", "Consistency check": "",
      "Source of data": "Group CSR indicator framework, provided 25/09/2026.", "Notes": ""},
     {"ID": "Ene.15", "Topic": "Energy", "KPI": "LPG - average FE", "Unit": "tCO2/kg",
      "Kind": "calculated", "Responsible": "CSO",
-     "Formula (documentation)": "Constant: config.LPG_EMISSION_FACTOR[BU]",
+     "Formula (documentation)": "CSR_parameters.xlsx: LPG_EMISSION_FACTOR (per BU and Year)",
      "Definition": "CO2 emission factor for LPG.",
      "Calculation detail": "", "Consistency check": "",
      "Source of data": "Group CSR indicator framework, provided 25/09/2026.", "Notes": ""},
@@ -219,8 +219,8 @@ FORMULA_DESC = {
     # of the ORIGINAL Excel formula only. csr_calc_engine.py no longer
     # executes these (23/09/2026, ratios can't be summed to a group total) —
     # they're computed downstream instead, from the same raw components.
-    "Ene.6.1": "Constant: config.LPG_CONVERSION_FACTOR[BU] (kWh per kg of LPG)",
-    "Ene.7.1": "Constant: config.FUEL_CONVERSION_FACTOR[BU] (kWh per liter of fuel)",
+    "Ene.6.1": "CSR_parameters.xlsx: LPG_CONVERSION_FACTOR (per BU and Year) (kWh per kg of LPG)",
+    "Ene.7.1": "CSR_parameters.xlsx: FUEL_CONVERSION_FACTOR (per BU and Year) (kWh per liter of fuel)",
     "Saf.4.1": "Working days in the month, public holidays excluded, per config.BU_COUNTRY[BU] "
                "(see csr_calc_engine.working_days_in_month)",
 }
