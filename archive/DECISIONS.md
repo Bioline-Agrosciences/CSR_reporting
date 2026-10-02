@@ -142,8 +142,29 @@ where it landed (`git show <commit>` for the details).
 - **Repo cleanup**: migration scripts and the former local consolidation
   moved to `archive/`; `Raw_data_CSR.xlsx` is no longer updated (history up
   to 02/10/2026, still used to pre-fill the data entry files and as the
-  notebook's reseed source); `nb_consolidate_sap_and_csr_data` stops
-  reading the completion table it did not use.
+  notebook's reseed source).
+
+## 02/10/2026 — Ratios in the dashboard, sales from the semantic model, notebooks as .ipynb
+
+- **Ratios computed in the Power BI dashboard, not in Fabric**: the second
+  notebook (`nb_consolidate_sap_and_csr_data`) computes no indicator at
+  all; ratios are computed on the fly in the dashboard, at the level of
+  aggregation displayed. This supersedes the earlier plan of computing
+  them per BU in that notebook.
+- **Sales (Env.1) read from the commercial dashboard's semantic model**
+  ("Bioline Agrosciences sales - Copy", measure "Sales | Commercial",
+  scenario 1 = actuals) with `sempy`'s `evaluate_measure`, rather than
+  summed from the raw sales table or a separate DAX query: it gives the same
+  figure as the commercial report. Summing the raw table (2.5 million rows)
+  gave about twice the figure (BUK July 2026: 4.04 M€ vs 2.02 M€).
+- **SAP entities -> BUs**: both DUDUTECH entities -> BAF, BIOLINE
+  AGROSCIENCES MEXICANA -> BUS.
+- **Notebooks versioned as `.ipynb` exported from Fabric**, replacing the
+  `.py` transcriptions whose cell layout no longer matched Fabric (and whose
+  sales notebook did not match what ran at all). Exported without outputs,
+  which contain real data, using `import-fabric-notebook` from
+  bioline_utils (generic, not specific to this project); a test fails if a
+  notebook still has outputs.
 
 ## Open points
 
@@ -151,6 +172,8 @@ where it landed (`git show <commit>` for the details).
   never confirmed.
 - BlueKanGo label "Bioline Viridaxis" never seen in an export, unverified.
 - Agency-worker accidents excluded from Saf.1 too: assumption to confirm.
-- `nb_consolidate_sap_and_csr_data`: actual `f_Sales` column names to
-  confirm (TODO in Cell 2).
+- `nb_consolidate_sap_and_csr_data`: cleaned version to validate in
+  Fabric; confirm that "Sales | Commercial" is in euros (a DAX query
+  filtered on EURO gave 2 032 475 € for BUK July 2026, the measure
+  2 023 347 €) and that MEXICANA belongs in BUS.
 - Anomaly email still to be set up in the Fabric Data Pipeline / Activator.

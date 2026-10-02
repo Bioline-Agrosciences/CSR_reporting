@@ -9,29 +9,36 @@ sur le code.
 - **Local** : seulement `scripts/generate_data_entry_file.py` (+
   `config.py`), qui écrit les fichiers de saisie dans SharePoint.
 - **Fabric** (workspace BM_F_D - SAP-B1, lakehouse LH_CSR_Reporting) :
-  `scripts/nb_consolidate_csr_data.py` (consolidation, sommes) puis
-  `scripts/nb_consolidate_sap_and_csr_data.py` (ventes SAP + 7 ratios).
+  `scripts/nb_consolidate_csr_data.ipynb` (consolidation, sommes) puis
+  `scripts/nb_consolidate_sap_and_csr_data.ipynb` (ajout des ventes Env.1
+  depuis le modèle sémantique commercial, aucun calcul).
+- **Power BI** : les ratios, calculés à la volée dans le tableau de bord.
 - `archive/` : scripts de migration et ancienne consolidation locale, gelés.
   Ne pas les modifier ni s'en servir comme référence de la logique actuelle
   (c'est le notebook qui fait foi). Historique des décisions :
   `archive/DECISIONS.md`.
 
-## Copie manuelle vers Fabric
+## Notebooks Fabric
 
-Les notebooks Fabric ne sont PAS synchronisés avec le dépôt : l'utilisatrice
-recopie les cellules à la main depuis les `nb_*.py`, découpés en blocs
-`# Cell N — ...`.
+Fabric n'est pas connecté au dépôt. Les notebooks sont versionnés en
+`.ipynb` exportés depuis Fabric, **toujours sans sorties** (elles
+contiennent des données réelles : ventes, valeurs RSE).
 
-- Après toute modification d'un `nb_*.py`, lister précisément les cellules
-  à recopier (numéro, quoi ajouter/supprimer), en distinguant les
-  changements de code des changements de commentaires seuls.
-- Ce qui se tape dans Fabric mais n'est pas du Python (`%pip ...`) est mis
-  en commentaire dans le `.py`.
+- Fabric -> dépôt : l'utilisatrice exporte le notebook, puis
+  `import-fabric-notebook <fichier.ipynb> scripts/` (commande du paquet
+  bioline_utils, installée via `uv tool install -e`). Un test échoue si un
+  notebook a encore des sorties.
+- Dépôt -> Fabric : après une modification d'un `.ipynb` ici, lui dire de
+  réimporter le notebook dans Fabric, ou lister les cellules à modifier
+  (en les désignant par leur contenu, elles ne sont pas numérotées), en
+  distinguant code et commentaires seuls.
+- Modifier un `.ipynb` par script Python (json), en gardant les métadonnées
+  du notebook (lakehouse par défaut) et les ids de cellules existants.
 
 ## Règles à respecter
 
-- **Uniquement des sommes dans la consolidation**, les ratios dans le
-  second notebook (un ratio ne s'additionne pas entre BU).
+- **Uniquement des sommes dans Fabric**, les ratios dans le tableau de bord
+  Power BI (un ratio ne s'additionne pas entre BU).
 - **Clé (BU, Year, Month, ID)** partout.
 - **Facteurs de conversion/émission** : dans `input_data/CSR_parameters.xlsx`
   (par BU et par année), jamais codés en dur.
