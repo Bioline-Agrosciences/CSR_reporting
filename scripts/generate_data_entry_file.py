@@ -65,7 +65,7 @@ VARIATION_FILL = "FFF4C7C3"
 TEMPLATE_PATH = config.TEMPLATE_DIR / "data_entry_template.xlsm"
 
 # Context columns shown to the referent (read-only), in this order. "ID" is
-# added on top, as the first column. nb_consolidate_csr_data (Cell 3) relies
+# added on top, as the first column. nb_consolidate_csr_data (DATA_ENTRY_VALUE_COL) relies
 # on this layout to find "Value of the month" and "Comment": update it too if
 # this list changes.
 DISPLAY_COLS = ["Topic", "KPI", "Unit", "Definition", "Calculation detail", "Source of data"]

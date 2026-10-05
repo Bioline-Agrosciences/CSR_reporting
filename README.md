@@ -21,10 +21,11 @@ BIB, BUK, BUS. Results land in Fabric Delta tables read by Power BI.
                                       Indicator_reference_CSR.xlsx       ──┤     CSR_parameters
                                       CSR_parameters.xlsx                ──┘     CSR_anomalies
                                                                                       │
-                                                                     f_Sales ──► nb_consolidate_sap_and_csr_data
-                                                                                   CSR_gold_reporting (+ ratios)
+                                          commercial semantic model ──► nb_consolidate_data_for_CSR_report
+                                          ("Sales | Commercial")          CSR_gold_reporting (+ sales)
+                                                                          CSR_gold_tracking
                                                                                       │
-                                                                                   Power BI
+                                                                                   Power BI (ratios)
 ```
 
 1. **Data entry files** — `scripts/generate_data_entry_file.py` (run
@@ -35,28 +36,49 @@ BIB, BUK, BUS. Results land in Fabric Delta tables read by Power BI.
    tracker up to date every time the file is opened, so it only needs
    regenerating when the indicator list changes or a new year starts.
 2. **Consolidation** — the Fabric notebook `nb_consolidate_csr_data`
-   (source: `scripts/nb_consolidate_csr_data.py`) reads the data entry
-   files, the Working Hours file and the latest BlueKanGo export straight
-   from SharePoint, cleans the values, computes the additive indicators and
-   writes the Delta tables above.
-3. **Ratios and sales** — the Fabric notebook
-   `nb_consolidate_sap_and_csr_data` (source:
-   `scripts/nb_consolidate_sap_and_csr_data.py`) joins the SAP sales figure
-   (Env.1) and computes the 7 ratio indicators into `CSR_gold_reporting`.
-   Its sales column mapping is still to be confirmed (TODO in Cell 2).
+   reads the data entry files, the Working Hours file and the latest
+   BlueKanGo export straight from SharePoint, cleans the values, computes
+   the additive indicators and writes the Delta tables above.
+3. **Dashboard tables** — the Fabric notebook
+   `nb_consolidate_data_for_CSR_report` reads the "Sales | Commercial"
+   measure of the commercial dashboard's semantic model, per SAP entity and
+   month, with the same filters as the commercial report (scenario
+   "Actual", currency EURO, forex method "FOREX BFC (Weighted Average)"),
+   maps SAP entities to BUs, and writes:
+   - `CSR_gold_reporting`: the CSR indicators plus the sales, one row per
+     SAP entity and month (`Env.1` in k€, `Sales_€` in €). Columns: Entity
+     (empty for CSR indicators), BU, Year, Month (number), MonthName, ID,
+     Value, Date (1st of the month, for d_Calendar);
+   - `CSR_gold_tracking`: `CSR_completion_report` with the same date
+     columns.
+4. **Ratios** — computed on the fly in the Power BI dashboard.
 
-The two notebooks are **not synced with this repo**: the `.py` files are
-their source, split into `# Cell N` blocks, and are copied into Fabric by
-hand after each change.
+**Daily run** — a Fabric data pipeline (folder `ATH_DataCoord /
+CSR_monthly_reporting` of the workspace) chains, each step only if the
+previous one succeeded: dataflow `df_CSR_dimensions` (Dim_Indicator,
+Dim_BU) → `nb_consolidate_csr_data` → `nb_consolidate_data_for_CSR_report`
+→ refresh of the semantic model `ms_csr_reporting`. It is scheduled every
+day at 10:30 (Paris time), after the sales finish updating (around 10:00),
+and takes about 5 minutes. Run history: the pipeline's run history or the
+Fabric Monitoring hub.
+
+In January, the daily run switches to the new year: run
+`nb_consolidate_csr_data` once more with the parameter `TARGET_YEAR` set to
+the previous year while referents finish entering December.
+
+The two notebooks are versioned in `scripts/` as `.ipynb` files exported
+from Fabric **without their outputs** (outputs contain real data). Fabric is
+not connected to this repo: after a change in Fabric, export the notebook
+and import it with `import-fabric-notebook` (see Setup); after a change
+here, import the `.ipynb` back into Fabric.
 
 ## Key rules
 
-- **Sums only in the consolidation, ratios downstream.** A sum rolls up
+- **Sums only in Fabric, ratios in the dashboard.** A sum rolls up
   correctly to a group total, a ratio does not (averaging 6 BUs' "%
   renewable energy" gives a meaningless number). Ratios (Wat.2, Ene.10,
-  Ene.11, Was.3, Was.4, Saf.6, Saf.7) are computed per BU and month in the
-  second notebook, and group-level ratios must be recomputed from the sums
-  (e.g. DAX measures).
+  Ene.11, Was.3, Was.4, Saf.6, Saf.7) are computed in Power BI from the
+  sums, at the level of aggregation displayed.
 - **Every row is keyed by (BU, Year, Month, ID).** Data entry files are one
   per year; a new year never overwrites the previous one.
 - **Values are cleaned, never guessed.** A decimal comma or numeric text is
@@ -78,16 +100,19 @@ definition and:
 
 Adding or removing a row is picked up by the next data entry file
 generation and the next notebook run. A new **calculated** indicator also
-needs its formula in the notebook (Cell 5): an additive formula in
-`FORMULAS`, or in the second notebook if it is a ratio.
+needs its formula: in `FORMULAS` (consolidation notebook) if it is a sum,
+or as a measure in the Power BI dashboard if it is a ratio.
 
 Calculated indicators are of three kinds:
 
 | Kind | Examples | Where |
 |---|---|---|
-| Sums of entered values | Ene.9 (total energy), Ref.1, Carb.1-5 (CO2 = energy x factor) | `FORMULAS`, notebook 1 |
-| Context values (depend only on BU and period) | Ene.6.1, Ene.7.1, Ene.12-15 (factors), Saf.4.1 (working days, public holidays of the BU's country) | `CONTEXTUAL_VALUES`, notebook 1 |
-| Ratios | Wat.2, Ene.10, Ene.11, Was.3, Was.4, Saf.6, Saf.7 | notebook 2 |
+| Sums of entered values | Ene.9 (total energy), Ref.1, Carb.1-5 (CO2 = energy x factor) | `FORMULAS`, consolidation notebook |
+| Context values (depend only on BU and period) | Ene.6.1, Ene.7.1, Ene.12-15 (factors), Saf.4.1 (working days, public holidays of the BU's country) | `CONTEXTUAL_VALUES`, consolidation notebook |
+| Ratios | Wat.2, Ene.10, Ene.11, Was.3, Was.4, Saf.6, Saf.7 | Power BI dashboard |
+
+Env.1 (sales) is not in the reference list: it comes from SAP, through the
+`nb_consolidate_data_for_CSR_report`.
 
 ## Emission and conversion factors
 
@@ -147,16 +172,35 @@ uv run scripts/generate_data_entry_file.py BAF BFR   # a selection
   default lakehouse to both notebooks, with the OneLake shortcut
   `Files/sp_csr_general` pointing to `Shared Documents/General` of the
   CSRreferents SharePoint site.
-- `holidays==0.105` installed for `nb_consolidate_csr_data` (Cell 0, or a
-  Fabric Environment when run from a Data Pipeline). Keep it the same
-  version as `uv.lock`: holiday dates change between versions, and with
-  them Saf.4.1.
+- A Fabric Environment attached to `nb_consolidate_csr_data`, with
+  `holidays==0.105` added under "External repositories" (it overrides the
+  0.48 built into Fabric; `%pip` is blocked in pipeline runs). Keep it the
+  same version as `uv.lock`: holiday dates change between versions, and
+  with them Saf.4.1.
+- The semantic model refresh activity of the pipeline uses a "Power BI
+  semantic model" connection under the owner's organizational account.
+- `nb_consolidate_data_for_CSR_report` reads the semantic model
+  "Bioline Agrosciences sales - Copy" of the same workspace (`sempy`).
+
+To version a notebook changed in Fabric: export it (File > Export >
+.ipynb), then
+
+```
+import-fabric-notebook "C:\Users\<me>\Downloads\nb_consolidate_csr_data.ipynb" scripts/
+git diff
+```
+
+`import-fabric-notebook` comes from the
+[bioline_utils](https://github.com/Bioline-Agrosciences/bioline_utils)
+package; install it once with
+`uv tool install -e C:\Users\<me>\Documents\bioline_utils` (from a local
+clone). A test fails if a notebook in `scripts/` still has outputs.
 
 ## Layout
 
 | Path | Content |
 |---|---|
-| `scripts/` | `generate_data_entry_file.py`, `config.py`, and the source of the two Fabric notebooks (`nb_*.py`) |
+| `scripts/` | `generate_data_entry_file.py`, `config.py`, and the two Fabric notebooks (`nb_*.ipynb`, without outputs) |
 | `templates/` | Empty `.xlsm` template carrying the data entry file's macro |
 | `tests/` | pytest tests, run by CI on every push/PR |
 | `archive/` | Migration scripts and the former local consolidation, plus the history of decisions (`archive/DECISIONS.md`) |

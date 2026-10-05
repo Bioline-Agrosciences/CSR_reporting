@@ -142,8 +142,74 @@ where it landed (`git show <commit>` for the details).
 - **Repo cleanup**: migration scripts and the former local consolidation
   moved to `archive/`; `Raw_data_CSR.xlsx` is no longer updated (history up
   to 02/10/2026, still used to pre-fill the data entry files and as the
-  notebook's reseed source); `nb_consolidate_sap_and_csr_data` stops
-  reading the completion table it did not use.
+  notebook's reseed source).
+
+## 02/10/2026 — Ratios in the dashboard, sales from the semantic model, notebooks as .ipynb
+
+- **Ratios computed in the Power BI dashboard, not in Fabric**: the second
+  notebook computes no indicator at all; ratios are computed on the fly in the dashboard, at the level of
+  aggregation displayed. This supersedes the earlier plan of computing
+  them per BU in that notebook.
+- **Sales (Env.1) read from the commercial dashboard's semantic model**
+  ("Bioline Agrosciences sales - Copy", measure "Sales | Commercial",
+  scenario 1 = actuals) with `sempy`'s `evaluate_measure`, rather than
+  summed from the raw sales table or a separate DAX query: it gives the same
+  figure as the commercial report. Summing the raw table (2.5 million rows)
+  gave about twice the figure (BUK July 2026: 4.04 M€ vs 2.02 M€).
+  The measure is taken as is, whatever its currency handling (a DAX query
+  filtered on EURO gave a slightly different figure: 2 032 475 € vs
+  2 023 347 € for BUK July 2026).
+- **SAP entities -> BUs**: both DUDUTECH entities -> BAF, BIOLINE
+  AGROSCIENCES MEXICANA -> BUS (confirmed).
+- **The production notebook is `nb_consolidate_data_for_CSR_report`**
+  (the draft `nb_consolidate_sap_and_csr_data` is abandoned). It writes the
+  two tables the dashboard reads, whose schema is kept as is:
+  `CSR_gold_reporting` (Entity, BU, Year, Month number, MonthName, ID,
+  Value, Date — sales as `Env.1` in k€ and `Sales_€` in €, one row per SAP
+  entity) and `CSR_gold_tracking` (completion, same date columns). Date =
+  1st of the month, for the relation with d_Calendar.
+- **Cleanup of that notebook**: CSR indicators were joined to the sales
+  wide, per entity, which duplicated every CSR value of BAF and BUS (2
+  entities each) and dropped the months without sales (inner join). Sales
+  and CSR indicators are now stacked instead: CSR rows have no entity, and
+  every month is kept. Empty values are no longer written. The dashboard
+  filters by BU only, never by Entity (confirmed): the Entity column is
+  kept for traceability of the sales, not used in visuals.
+- **Notebooks versioned as `.ipynb` exported from Fabric**, replacing the
+  `.py` transcriptions whose cell layout no longer matched Fabric (and whose
+  sales notebook did not match what ran at all). Exported without outputs,
+  which contain real data, using `import-fabric-notebook` from
+  bioline_utils (generic, not specific to this project); a test fails if a
+  notebook still has outputs.
+
+## 02/10/2026 — Daily pipeline in Fabric
+
+- **One pipeline, scheduled daily at 10:30**, after the sales finish
+  updating in the commercial model (around 10:00): dataflow
+  `df_CSR_dimensions` (renamed from `df_consolidated_CSR_file`, which now
+  only holds Dim_Indicator and Dim_BU) → `nb_consolidate_csr_data` →
+  `nb_consolidate_data_for_CSR_report` → refresh of `ms_csr_reporting`,
+  each step only on success of the previous one. The model is refreshed by
+  the pipeline rather than by its own schedule (12:00), so the dashboard is
+  up to date as soon as the data is.
+- **Dataflows `df_extract_BlueKanGo` and `df_working_hours` removed**: the
+  consolidation notebook reads the BlueKanGo export and the Working Hours
+  file directly from SharePoint.
+- **`holidays` installed through a Fabric Environment**, not `%pip`: `%pip`
+  is blocked when a pipeline runs the notebook (the first pipeline run
+  failed on it). The Environment adds `holidays==0.105` from PyPI, which
+  overrides the 0.48 built into Fabric.
+
+## 05/10/2026 — Sales filters aligned with the commercial report
+
+- **The sales query now applies the commercial report's filters explicitly**:
+  scenario `d_Scenary[Desc_Scenary] = "Actual"`, currency
+  `d_Currency[Currency] = "EURO"` and forex method
+  `z_Aux Calc Method Forex[Method Forex] = "FOREX BFC (Weighted Average)"`,
+  grouped by `d_Calendar[Beginning of the month]`. Without the currency and
+  forex filters, the measure did not give the right sales figures, BAF in
+  particular. This supersedes the earlier choice of taking the measure "as
+  is" with only `Cod_Scenary = 1`.
 
 ## Open points
 
@@ -151,6 +217,11 @@ where it landed (`git show <commit>` for the details).
   never confirmed.
 - BlueKanGo label "Bioline Viridaxis" never seen in an export, unverified.
 - Agency-worker accidents excluded from Saf.1 too: assumption to confirm.
-- `nb_consolidate_sap_and_csr_data`: actual `f_Sales` column names to
-  confirm (TODO in Cell 2).
+- `nb_consolidate_data_for_CSR_report`: cleaned version to run and
+  validate in Fabric (check the dashboard visuals for BAF and BUS, whose
+  CSR values are no longer doubled).
+- `CSR_indicators_report` and `CSR_completion_report` read by the dashboard
+  notebook on 02/10/2026 had no Year column, i.e. were still the Dataflow's
+  version: the Dataflow queries must be removed so they stop overwriting
+  the consolidation notebook's tables.
 - Anomaly email still to be set up in the Fabric Data Pipeline / Activator.
