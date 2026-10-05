@@ -41,9 +41,10 @@ BIB, BUK, BUS. Results land in Fabric Delta tables read by Power BI.
    the additive indicators and writes the Delta tables above.
 3. **Dashboard tables** — the Fabric notebook
    `nb_consolidate_data_for_CSR_report` reads the "Sales | Commercial"
-   measure of the commercial dashboard's semantic model (actuals, per SAP
-   entity and month, so the figure matches the commercial report), maps SAP
-   entities to BUs, and writes:
+   measure of the commercial dashboard's semantic model, per SAP entity and
+   month, with the same filters as the commercial report (scenario
+   "Actual", currency EURO, forex method "FOREX BFC (Weighted Average)"),
+   maps SAP entities to BUs, and writes:
    - `CSR_gold_reporting`: the CSR indicators plus the sales, one row per
      SAP entity and month (`Env.1` in k€, `Sales_€` in €). Columns: Entity
      (empty for CSR indicators), BU, Year, Month (number), MonthName, ID,

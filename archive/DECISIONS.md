@@ -200,6 +200,17 @@ where it landed (`git show <commit>` for the details).
   failed on it). The Environment adds `holidays==0.105` from PyPI, which
   overrides the 0.48 built into Fabric.
 
+## 05/10/2026 — Sales filters aligned with the commercial report
+
+- **The sales query now applies the commercial report's filters explicitly**:
+  scenario `d_Scenary[Desc_Scenary] = "Actual"`, currency
+  `d_Currency[Currency] = "EURO"` and forex method
+  `z_Aux Calc Method Forex[Method Forex] = "FOREX BFC (Weighted Average)"`,
+  grouped by `d_Calendar[Beginning of the month]`. Without the currency and
+  forex filters, the measure did not give the right sales figures, BAF in
+  particular. This supersedes the earlier choice of taking the measure "as
+  is" with only `Cod_Scenary = 1`.
+
 ## Open points
 
 - BU countries BIB -> ES and Viridaxis -> BE (public holidays for Saf.4.1)
