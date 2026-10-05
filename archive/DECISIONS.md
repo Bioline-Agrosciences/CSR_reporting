@@ -213,13 +213,13 @@ where it landed (`git show <commit>` for the details).
 
 ## 05/10/2026 — CO2 from refrigerant leaks, Carb.5 becomes the total
 
-- **Carb.7 = CO2e from refrigerant leaks**: kg leaked per fluid (Ref.2-9)
+- **Carb.5.2 = CO2e from refrigerant leaks**: kg leaked per fluid (Ref.2-9)
   x its global warming potential, / 1000 for tCO2e. Still additive, so it
   stays in the consolidation notebook.
-- **Carb.6 = CO2 from energy** (Carb.1-4), i.e. the former Carb.5.
-  **Carb.5 is now the total**, Carb.6 + Carb.7 ("Total CO2 emissions",
+- **Carb.5.1 = CO2 from energy** (Carb.1-4), i.e. the former Carb.5.
+  **Carb.5 is now the total**, Carb.5.1 + Carb.5.2 ("Total CO2 emissions",
   tCO2e). A dashboard visual that used Carb.5 as energy CO2 now shows the
-  total. The notebook checks Carb.5 = Carb.6 + Carb.7 for every BU and
+  total. The notebook checks Carb.5 = Carb.5.1 + Carb.5.2 for every BU and
   month (check "Consistency" in CSR_anomalies).
 - **GWPs: IPCC AR5, 100-year** (the GHG Protocol reference), as no GWP was
   available from the group: R449A 1282, R32 677, R404A 3943, R410A 1924,
@@ -228,8 +228,10 @@ where it landed (`git show <commit>` for the details).
   (GWP_<fluid>, one row per BU, Year 2026), like the energy factors. The
   GWPs are not indicators of the reference list (internal Ref.X.GWP
   values), so they are not written to CSR_indicators_report.
+- **Sub-totals named Carb.5.1 / Carb.5.2**, not Carb.6 / Carb.7: Carb.6 is
+  already used in the Power BI dashboard (carbon intensity).
 - Validated locally on the 2026 data (05/10/2026): every other indicator
-  unchanged, Carb.6 equal to the former Carb.5, Carb.5 = Carb.6 + Carb.7 on
+  unchanged, Carb.5.1 equal to the former Carb.5, Carb.5 = Carb.5.1 + Carb.5.2 on
   all 72 BU-months.
 
 ## Open points
