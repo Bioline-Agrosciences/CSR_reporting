@@ -200,6 +200,15 @@ where it landed (`git show <commit>` for the details).
   failed on it). The Environment adds `holidays==0.105` from PyPI, which
   overrides the 0.48 built into Fabric.
 
+## 05/10/2026 — No "%pip" text in notebooks, even in comments
+
+- A scheduled run failed with `MagicUsageError: %pip is not supported in
+  high concurrency session`, although the notebook had no `%pip` command:
+  a header comment started with `# %pip ...`. The pipeline runs notebooks
+  in a high concurrency session, whose check also matches the text in
+  comments. The comment was reworded, and a test now fails if `%pip`
+  appears anywhere in a notebook.
+
 ## Open points
 
 - BU countries BIB -> ES and Viridaxis -> BE (public holidays for Saf.4.1)

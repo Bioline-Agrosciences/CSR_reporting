@@ -19,3 +19,11 @@ def test_notebook_has_no_outputs(path):
         if cell["cell_type"] == "code":
             assert cell["outputs"] == [], f"{path.name}: a cell still has outputs"
     assert not nb["metadata"].get("synapse_widget", {}).get("state"), f"{path.name}: widget state not empty"
+
+
+@pytest.mark.parametrize("path", NOTEBOOKS, ids=lambda p: p.name)
+def test_notebook_has_no_pip_magic(path):
+    # The pipeline runs notebooks in a high concurrency session, which rejects
+    # any notebook containing "%pip", even inside a comment
+    # (MagicUsageError). Libraries go in the Fabric Environment instead.
+    assert "%pip" not in path.read_text(encoding="utf-8"), f"{path.name} contains %pip"
