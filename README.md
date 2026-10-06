@@ -107,9 +107,18 @@ Calculated indicators are of three kinds:
 
 | Kind | Examples | Where |
 |---|---|---|
-| Sums of entered values | Ene.9 (total energy), Ref.1, Carb.1-5 (CO2 = energy x factor) | `FORMULAS`, consolidation notebook |
-| Context values (depend only on BU and period) | Ene.6.1, Ene.7.1, Ene.12-15 (factors), Saf.4.1 (working days, public holidays of the BU's country) | `CONTEXTUAL_VALUES`, consolidation notebook |
+| Sums of entered values | Ene.9 (total energy), Ref.1 (total leaks), Carb.1-5, Carb.5.1, Carb.5.2 (CO2, see below) | `FORMULAS`, consolidation notebook |
+| Context values (depend only on BU and period) | Ene.6.1, Ene.7.1, Ene.12-15 (factors), refrigerant GWPs (internal, not in the reference list), Saf.4.1 (working days, public holidays of the BU's country) | `CONTEXTUAL_VALUES`, consolidation notebook |
 | Ratios | Wat.2, Ene.10, Ene.11, Was.3, Was.4, Saf.6, Saf.7 | Power BI dashboard |
+
+Carbon emissions:
+
+| ID | Indicator | Calculation |
+|---|---|---|
+| Carb.1-4 | CO2 from electricity, natural gas, fuel, LPG (tCO2) | consumption x emission factor (Ene.12-15) |
+| Carb.5.1 | CO2 from energy (tCO2) | Carb.1 + Carb.2 + Carb.3 + Carb.4 |
+| Carb.5.2 | CO2e from refrigerant leaks (tCO2e) | Σ kg leaked per fluid (Ref.2-9) x its GWP (kgCO2e/kg) / 1000 |
+| Carb.5 | Total CO2 emissions (tCO2e) | Carb.5.1 + Carb.5.2, checked on every run (`CSR_anomalies`, check "Consistency") |
 
 Env.1 (sales) is not in the reference list: it comes from SAP, through the
 `nb_consolidate_data_for_CSR_report`.
@@ -117,7 +126,10 @@ Env.1 (sales) is not in the reference list: it comes from SAP, through the
 ## Emission and conversion factors
 
 `input_data/CSR_parameters.xlsx`, sheet "Parameters": one row per
-(Parameter, BU, Year) with Value, Unit and Source.
+(Parameter, BU, Year) with Value, Unit and Source. It holds the energy
+conversion factors, the energy emission factors and the global warming
+potential of each refrigerant (`GWP_R449A` ... `GWP_R134A`, kgCO2e/kg, IPCC
+AR5 100-year values).
 
 - **To publish a new year's factor, add rows with the new Year — never edit
   the previous year's rows**, otherwise already-published emissions change.
@@ -138,7 +150,8 @@ Env.1 (sales) is not in the reference list: it comes from SAP, through the
 
 Each notebook run appends to `CSR_anomalies` (with `Run_date`): corrected or
 unreadable values, missing values for every month up to the current one,
-month-over-month variations above 20%, and carried-over or missing factors.
+month-over-month variations above 20%, carried-over or missing factors, and
+any BU and month where Carb.5 differs from Carb.5.1 + Carb.5.2.
 The alert email is to be sent from the Fabric Data Pipeline (Office 365
 Outlook activity) or Activator, based on this table.
 
