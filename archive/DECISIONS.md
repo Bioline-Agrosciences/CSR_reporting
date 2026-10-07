@@ -247,6 +247,17 @@ where it landed (`git show <commit>` for the details).
   counts as 0, both empty = empty), and its Detail shows "empty" instead of
   a blank cell for a missing value.
 
+## 07/10/2026 — BlueKanGo export read by column name
+
+- **Columns located by their header name, not their position**: the
+  column order depends on who exports the file from BlueKanGo. The header
+  row is the first of the first 10 rows that contains every expected name
+  (case, extra spaces and apostrophe type ignored); a missing column raises
+  an error listing the headers found, rather than reading the wrong column.
+  "Oui"/"OUI" values compared case-insensitively for the same reason.
+- Validated on the two exports on SharePoint (21/09 and 05/10/2026):
+  accident events identical to the position-based version.
+
 ## Open points
 
 - BU countries BIB -> ES and Viridaxis -> BE (public holidays for Saf.4.1)

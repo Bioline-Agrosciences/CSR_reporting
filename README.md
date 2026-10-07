@@ -150,6 +150,12 @@ AR5 100-year values).
 | Saf.5 days lost | BlueKanGo export | sum of stoppage days |
 | Saf.1 days without accident | BlueKanGo export | days from month end to the BU's last accident, across years |
 
+The BlueKanGo export is read by column name (`ACCIDENT_COLUMNS` in the
+consolidation notebook: Business Unit, Date de l'accident, Intérimaire /
+Agency / non Bioline employees, Arrêt de travail, Durée totale de l'arrêt
+(calcul)), so the column order and any extra columns do not matter. A
+missing column stops the notebook with the list of headers found.
+
 ## Anomalies
 
 Each notebook run appends to `CSR_anomalies` (with `Run_date`): corrected or
