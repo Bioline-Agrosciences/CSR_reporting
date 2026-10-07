@@ -111,6 +111,10 @@ Calculated indicators are of three kinds:
 | Context values (depend only on BU and period) | Ene.6.1, Ene.7.1, Ene.12-15 (factors), refrigerant GWPs (internal, not in the reference list), Saf.4.1 (working days, public holidays of the BU's country) | `CONTEXTUAL_VALUES`, consolidation notebook |
 | Ratios | Wat.2, Ene.10, Ene.11, Was.3, Was.4, Saf.6, Saf.7 | Power BI dashboard |
 
+In `FORMULAS`, a sum skips its empty terms but stays empty when all of them
+are empty (a month not entered yet is missing, not 0); a product (quantity x
+factor) is empty as soon as one of its factors is.
+
 Carbon emissions:
 
 | ID | Indicator | Calculation |
