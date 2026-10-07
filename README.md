@@ -169,12 +169,14 @@ missing column stops the notebook with the list of headers found.
 
 ## Anomalies
 
-Each notebook run appends to `CSR_anomalies` (with `Run_date`): corrected or
-unreadable values, missing values for every month up to the current one,
-month-over-month variations above 20%, carried-over or missing factors, and
-any BU and month where Carb.5 differs from Carb.5.1 + Carb.5.2.
-The alert email is to be sent from the Fabric Data Pipeline (Office 365
-Outlook activity) or Activator, based on this table.
+Each notebook run replaces `CSR_anomalies` with the anomalies of that run
+only: corrected or unreadable values, missing values for every month up to
+the current one, month-over-month variations above 20%, carried-over or
+missing factors, and any BU and month where Carb.5 differs from Carb.5.1 +
+Carb.5.2. `Run_date` is the date and time of the run (Paris time).
+A separate Power BI report on `ms_csr_reporting`, shared only with the
+people following the anomalies, shows this table; they receive it by
+email through a Power BI subscription.
 
 ## Setup (local part)
 
