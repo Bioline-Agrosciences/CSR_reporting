@@ -311,6 +311,20 @@ where it landed (`git show <commit>` for the details).
   is already caught by the 20% rule). On the 2026 data entry files: 51
   outliers vs 158 variations above 20%; a single wrong value also shows on
   its totals (Ene.9, Carb.5.1, Carb.5).
+- **Outlier check refined after the first Fabric run**:
+  - also requires more than 20% from the median of the year
+    (`OUTLIER_MIN_DEVIATION`): on very stable series such as hours worked
+    (Saf.4.2), the IQR is tiny and a 1-2% gap was flagged;
+  - months after the current one excluded, as for missing values: values
+    already entered for future months (Viridaxis 0s in October-December,
+    Working Hours of BAF) were flagged and distorted the quartiles;
+  - `OUTLIER_MIN_MONTHS` kept at 6: with 3 values the boxplot rule can
+    never flag anything (the bound always exceeds the extreme value), and
+    quartiles of 4-5 values mean little;
+  - numbers in the Detail labels rounded to 2 decimals;
+  - new table `CSR_outlier_bounds` (quartiles, median, bounds per series),
+    so the anomaly report can draw the usual range next to the monthly
+    values instead of a long table.
 
 ## Open points
 
