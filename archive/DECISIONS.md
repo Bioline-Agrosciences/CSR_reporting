@@ -268,10 +268,27 @@ where it landed (`git show <commit>` for the details).
   the README (Setup): reselect the notebook in each activity, delete or
   rename the old item, run and check a value.
 
+## 07/10/2026 — BU countries confirmed, table for the Power BI map
+
+- **BU countries confirmed**: BIB -> Spain, Viridaxis -> Belgium (the
+  22/09 guesses), BUS -> United States (site in Camarillo, California;
+  BUS's Mexican SAP entity only matters for sales).
+- **`CSR_bu_country` table** (BU, CountryCode, Country), written by
+  `nb_consolidate_csr_data` from `BU_COUNTRY`, the mapping already used for
+  the public holidays of Saf.4.1, so the map and the working days cannot
+  diverge. One row per BU, related to `Dim_BU` in Power BI, rather than a
+  country column repeated on every indicator row. English country name in
+  addition to the ISO code, as the Power BI map geocodes names better.
+- **Region and MapLocation columns**: with the country only, the map puts
+  BUS in the middle of the US. `BU_SITE` gives a more precise site where
+  needed (BUS: Camarillo, California); `MapLocation` = "City, Region,
+  Country" for those BUs, the country name otherwise. Sites confirmed
+  on 07/10/2026: BAF Naivasha, BFR Livron (Livron-sur-Drôme, not the Livron of
+  Pyrénées-Atlantiques), BIB Almería, BUS Camarillo; region added so the
+  map cannot pick a homonym. Viridaxis and BUK: country only, for now.
+
 ## Open points
 
-- BU countries BIB -> ES and Viridaxis -> BE (public holidays for Saf.4.1)
-  never confirmed.
 - BlueKanGo label "Bioline Viridaxis" never seen in an export, unverified.
 - Agency-worker accidents excluded from Saf.1 too: assumption to confirm.
 - `nb_consolidate_data_for_CSR_report`: cleaned version to run and
