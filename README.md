@@ -20,6 +20,7 @@ BIB, BUK, BUS. Results land in Fabric Delta tables read by Power BI.
                                     input_data/                            │     CSR_completion_report
                                       Indicator_reference_CSR.xlsx       ──┤     CSR_parameters
                                       CSR_parameters.xlsx                ──┘     CSR_anomalies
+                                                                                 CSR_bu_country
                                                                                       │
                                           commercial semantic model ──► nb_consolidate_data_for_CSR_report
                                           ("Sales | Commercial")          CSR_gold_reporting (+ sales)
@@ -39,6 +40,11 @@ BIB, BUK, BUS. Results land in Fabric Delta tables read by Power BI.
    reads the data entry files, the Working Hours file and the latest
    BlueKanGo export straight from SharePoint, cleans the values, computes
    the additive indicators and writes the Delta tables above.
+   `CSR_bu_country` (BU, CountryCode, Country) gives each BU's country,
+   for the Power BI map: relate it to `Dim_BU` on BU and set `Country` to
+   the "Country/Region" data category. It comes from `BU_COUNTRY` in the
+   notebook, the same mapping as the public holidays of Saf.4.1 (BUS =
+   United States: the site is in Camarillo, California).
 3. **Dashboard tables** — the Fabric notebook
    `nb_consolidate_data_for_CSR_report` reads the "Sales | Commercial"
    measure of the commercial dashboard's semantic model, per SAP entity and
