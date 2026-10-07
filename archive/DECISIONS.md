@@ -234,6 +234,19 @@ where it landed (`git show <commit>` for the details).
   unchanged, Carb.5.1 equal to the former Carb.5, Carb.5 = Carb.5.1 + Carb.5.2 on
   all 72 BU-months.
 
+## 07/10/2026 — Sums of empty components stay empty
+
+- **A calculated sum is empty when all its components are empty**, instead
+  of 0: Ene.9 and Carb.5 showed 0 for months not entered yet, because every
+  empty input was read as 0 (`z()`). Now `total()` skips empty terms but
+  returns empty if none is filled, and `product()` (quantity x factor) is
+  empty as soon as one factor is. A partly entered month still gives a
+  partial sum (the missing inputs are flagged in CSR_anomalies); a 0 actually
+  typed stays 0.
+- The Carb.5 consistency check follows the same rule (an empty sub-total
+  counts as 0, both empty = empty), and its Detail shows "empty" instead of
+  a blank cell for a missing value.
+
 ## Open points
 
 - BU countries BIB -> ES and Viridaxis -> BE (public holidays for Saf.4.1)
