@@ -171,9 +171,11 @@ missing column stops the notebook with the list of headers found.
 
 Each notebook run replaces `CSR_anomalies` with the anomalies of that run
 only: corrected or unreadable values, missing values for every month up to
-the current one, month-over-month variations above 20%, carried-over or
-missing factors, and any BU and month where Carb.5 differs from Carb.5.1 +
-Carb.5.2. `Run_date` is the date and time of the run (Paris time).
+the current one, month-over-month variations above 20%, outliers (a value
+outside [Q1 - 1.5 x IQR, Q3 + 1.5 x IQR] of the year's values of the same
+BU and indicator, from 6 months entered; context values and series with no
+spread skipped), carried-over or missing factors, and any BU and month
+where Carb.5 differs from Carb.5.1 + Carb.5.2. `Run_date` is the date and time of the run (Paris time).
 A separate Power BI report on `ms_csr_reporting`, shared only with the
 people following the anomalies, shows this table; they receive it by
 email through a Power BI subscription.
