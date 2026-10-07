@@ -258,6 +258,16 @@ where it landed (`git show <commit>` for the details).
 - Validated on the two exports on SharePoint (21/09 and 05/10/2026):
   accident events identical to the position-based version.
 
+## 07/10/2026 — Check the pipeline after each notebook import
+
+- After the merges of PR #11-13, `CSR_indicators_report` still had Ene.9 /
+  Ref.1 / Carb.5 at 0 for empty months and no Carb.5.1 / Carb.5.2: the
+  pipeline was most likely still running an older notebook item, earlier
+  imports having created new items instead of replacing it (a Notebook
+  activity points to an item, not a name). Hence the post-import check in
+  the README (Setup): reselect the notebook in each activity, delete or
+  rename the old item, run and check a value.
+
 ## Open points
 
 - BU countries BIB -> ES and Viridaxis -> BE (public holidays for Saf.4.1)
