@@ -300,6 +300,17 @@ where it landed (`git show <commit>` for the details).
   over every stored run, and two runs on the same day (date only) were
   counted twice. Each run recomputes every anomaly of the year anyway, so
   the history had no use. `Run_date` becomes a timestamp (Paris time).
+- **"Outlier" check added, alongside the variations above 20%** (not
+  replacing them): boxplot rule, a value outside [Q1 - 1.5 x IQR, Q3 + 1.5 x
+  IQR] of the year's values of its BU and indicator. The 20% rule compares
+  two consecutive months and flags every seasonal swing; the outlier rule
+  compares a month with the whole year. Checked only from 6 months entered
+  (quartiles of fewer values mean little); context values (factors,
+  working days) skipped; series with IQR = 0 skipped, e.g. refrigerant
+  leaks almost always at 0, where every leak would be flagged (a jump there
+  is already caught by the 20% rule). On the 2026 data entry files: 51
+  outliers vs 158 variations above 20%; a single wrong value also shows on
+  its totals (Ene.9, Carb.5.1, Carb.5).
 
 ## Open points
 
