@@ -177,7 +177,8 @@ BU and indicator AND more than 20% away from the median; months up to the
 current one, from 6 months entered; context values and series with no
 spread skipped), carried-over or missing factors, and any BU and month
 where Carb.5 differs from Carb.5.1 + Carb.5.2. `Run_date` is the date and
-time of the run (Paris time). `CSR_outlier_bounds` (BU, Year, ID, Q1,
+time of the run (Paris time); `MonthNumber` (1-12) sorts `Month` in
+Power BI. `CSR_outlier_bounds` (BU, Year, ID, Q1,
 Median, Q3, Low, High, Months) holds the usual range of every series
 checked for outliers, to draw it next to the monthly values.
 A separate Power BI report on `ms_csr_reporting`, shared only with the
