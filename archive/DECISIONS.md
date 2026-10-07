@@ -287,6 +287,20 @@ where it landed (`git show <commit>` for the details).
   Pyrénées-Atlantiques), BIB Almería, BUS Camarillo; region added so the
   map cannot pick a homonym. Viridaxis and BUK: country only, for now.
 
+## 07/10/2026 — Anomalies: Power BI report, table replaced at each run
+
+- **Anomaly email through Power BI, not the pipeline**: a separate report
+  on `ms_csr_reporting` (not part of the dashboard everyone sees), with a
+  Power BI email subscription for the Data coordinator and Laure. No code,
+  recipients and frequency set in Power BI. The pipeline email (Office 365
+  Outlook activity) stays possible later if a real table in the email body
+  is needed.
+- **`CSR_anomalies` replaced at each run instead of appended**: the report
+  had to filter on the last `Run_date`, its detail table summed `Value`
+  over every stored run, and two runs on the same day (date only) were
+  counted twice. Each run recomputes every anomaly of the year anyway, so
+  the history had no use. `Run_date` becomes a timestamp (Paris time).
+
 ## Open points
 
 - BlueKanGo label "Bioline Viridaxis" never seen in an export, unverified.
@@ -298,7 +312,6 @@ where it landed (`git show <commit>` for the details).
   notebook on 02/10/2026 had no Year column, i.e. were still the Dataflow's
   version: the Dataflow queries must be removed so they stop overwriting
   the consolidation notebook's tables.
-- Anomaly email still to be set up in the Fabric Data Pipeline / Activator.
 - Refrigerant GWPs: AR5 chosen by default; to replace if the group
   publishes its own values (add rows for the new year in
   CSR_parameters.xlsx).
