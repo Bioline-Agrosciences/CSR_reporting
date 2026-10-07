@@ -282,7 +282,10 @@ where it landed (`git show <commit>` for the details).
 - **Region and MapLocation columns**: with the country only, the map puts
   BUS in the middle of the US. `BU_SITE` gives a more precise site where
   needed (BUS: Camarillo, California); `MapLocation` = "City, Region,
-  Country" for those BUs, the country name otherwise.
+  Country" for those BUs, the country name otherwise. Sites confirmed
+  on 07/10/2026: BAF Naivasha, BFR Livron (Livron-sur-Drôme, not the Livron of
+  Pyrénées-Atlantiques), BIB Almería, BUS Camarillo; region added so the
+  map cannot pick a homonym. Viridaxis and BUK: country only, for now.
 
 ## Open points
 
