@@ -32,7 +32,9 @@ contiennent des données réelles : ventes, valeurs RSE).
 - Dépôt -> Fabric : après une modification d'un `.ipynb` ici, lui dire de
   réimporter le notebook dans Fabric, ou lister les cellules à modifier
   (en les désignant par leur contenu, elles ne sont pas numérotées), en
-  distinguant code et commentaires seuls.
+  distinguant code et commentaires seuls. Rappeler de vérifier ensuite que
+  chaque activité du pipeline pointe vers le notebook importé (README,
+  Setup) : un import peut créer un nouvel élément sans remplacer l'ancien.
 - Modifier un `.ipynb` par script Python (json), en gardant les métadonnées
   du notebook (lakehouse par défaut) et les ids de cellules existants.
 

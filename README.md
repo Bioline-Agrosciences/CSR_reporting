@@ -70,7 +70,8 @@ The two notebooks are versioned in `scripts/` as `.ipynb` files exported
 from Fabric **without their outputs** (outputs contain real data). Fabric is
 not connected to this repo: after a change in Fabric, export the notebook
 and import it with `import-fabric-notebook` (see Setup); after a change
-here, import the `.ipynb` back into Fabric.
+here, import the `.ipynb` back into Fabric and check the pipeline still
+runs it (see Setup).
 
 ## Key rules
 
@@ -218,6 +219,23 @@ git diff
 package; install it once with
 `uv tool install -e C:\Users\<me>\Documents\bioline_utils` (from a local
 clone). A test fails if a notebook in `scripts/` still has outputs.
+
+To bring a notebook changed here into Fabric: import the `.ipynb` from
+`scripts/` (on an up-to-date `main`) into the workspace, then check the
+pipeline actually runs it. A Notebook activity points to one notebook item,
+not to a name: if the import created a new item (name with a suffix, or the
+old one deleted and re-imported), the pipeline keeps running the old one.
+
+1. Open the pipeline, select each Notebook activity, Settings tab: the
+   notebook shown must be the one just imported; reselect it otherwise, and
+   save the pipeline.
+2. Delete the old notebook (or rename it with an `_OLD` suffix), so no
+   activity can silently keep pointing to it.
+3. Check the imported notebook still has `LH_CSR_Reporting` as default
+   lakehouse, the Environment with `holidays` (`nb_consolidate_csr_data`),
+   and its `# Paramètres` cell toggled as parameter cell.
+4. Run the pipeline and check a value that the change affects in
+   `CSR_indicators_report` (SQL endpoint of the lakehouse).
 
 ## Layout
 
