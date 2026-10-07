@@ -279,6 +279,10 @@ where it landed (`git show <commit>` for the details).
   diverge. One row per BU, related to `Dim_BU` in Power BI, rather than a
   country column repeated on every indicator row. English country name in
   addition to the ISO code, as the Power BI map geocodes names better.
+- **Region and MapLocation columns**: with the country only, the map puts
+  BUS in the middle of the US. `BU_SITE` gives a more precise site where
+  needed (BUS: Camarillo, California); `MapLocation` = "City, Region,
+  Country" for those BUs, the country name otherwise.
 
 ## Open points
 
