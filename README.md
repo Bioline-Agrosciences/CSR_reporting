@@ -173,11 +173,16 @@ Each notebook run replaces `CSR_anomalies` with the anomalies of that run
 only: corrected or unreadable values, missing values for every month up to
 the current one, month-over-month variations above 20%, outliers (a value
 outside [Q1 - 1.5 x IQR, Q3 + 1.5 x IQR] of the year's values of the same
-BU and indicator, from 6 months entered; context values and series with no
+BU and indicator AND more than 20% away from the median; months up to the
+current one, from 6 months entered; context values and series with no
 spread skipped), carried-over or missing factors, and any BU and month
-where Carb.5 differs from Carb.5.1 + Carb.5.2. `Run_date` is the date and time of the run (Paris time).
+where Carb.5 differs from Carb.5.1 + Carb.5.2. `Run_date` is the date and
+time of the run (Paris time); `MonthNumber` (1-12) sorts `Month` in
+Power BI. `CSR_outlier_bounds` (BU, Year, ID, Q1,
+Median, Q3, Low, High, Months) holds the usual range of every series
+checked for outliers, to draw it next to the monthly values.
 A separate Power BI report on `ms_csr_reporting`, shared only with the
-people following the anomalies, shows this table; they receive it by
+people following the anomalies, shows these tables; they receive it by
 email through a Power BI subscription.
 
 ## Setup (local part)
