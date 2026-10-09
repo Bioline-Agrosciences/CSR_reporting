@@ -338,6 +338,17 @@ where it landed (`git show <commit>` for the details).
   are real accidents, already visible in the Safety indicators, not entry
   errors.
 
+## 09/10/2026 — Anomalies stop at the previous month
+
+- Referents fill in the previous month, never the current one, so the
+  current month always showed up as missing values (BAF: 24 in October on
+  the 09/10 run) and its partial entries as variations or outliers.
+  `CURRENT_MONTH` becomes `LAST_DUE_MONTH`, by default the previous month
+  (December for a past `TARGET_YEAR`, none in January for the current
+  year). Every check, including variations, data quality notes and
+  Carb.5 consistency, drops the current year's months after it, and the
+  outlier bounds no longer use them.
+
 ## Open points
 
 - BlueKanGo label "Bioline Viridaxis" never seen in an export, unverified.

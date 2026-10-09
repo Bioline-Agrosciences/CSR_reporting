@@ -170,12 +170,14 @@ missing column stops the notebook with the list of headers found.
 ## Anomalies
 
 Each notebook run replaces `CSR_anomalies` with the anomalies of that run
-only: corrected or unreadable values, missing values for every month up to
-the current one, month-over-month variations above 20% (Saf.1/2/3/5 skipped),
+only. For the current year it checks only the months already due, up to
+the previous month (`LAST_DUE_MONTH`; none in January): the current month
+is not filled in yet. Checks: corrected or unreadable values, missing values,
+month-over-month variations above 20% (Saf.1/2/3/5 skipped),
 outliers (a value
 outside [Q1 - 1.5 x IQR, Q3 + 1.5 x IQR] of the year's values of the same
-BU and indicator AND more than 20% away from the median; months up to the
-current one, from 6 months entered; context values, Saf.1/2/3/5 and
+BU and indicator AND more than 20% away from the median; from 6 months
+entered; context values, Saf.1/2/3/5 and
 series with no spread skipped), carried-over or missing factors, and any BU and month
 where Carb.5 differs from Carb.5.1 + Carb.5.2. `Run_date` is the date and
 time of the run (Paris time); `MonthNumber` (1-12) sorts `Month` in
