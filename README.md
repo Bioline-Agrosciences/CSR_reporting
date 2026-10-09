@@ -171,7 +171,7 @@ missing column stops the notebook with the list of headers found.
 
 Each notebook run replaces `CSR_anomalies` with the anomalies of that run
 only: corrected or unreadable values, missing values for every month up to
-the current one, month-over-month variations above 20% (Saf.1 skipped),
+the current one, month-over-month variations above 20% (Saf.1/2/3/5 skipped),
 outliers (a value
 outside [Q1 - 1.5 x IQR, Q3 + 1.5 x IQR] of the year's values of the same
 BU and indicator AND more than 20% away from the median; months up to the

@@ -333,7 +333,10 @@ where it landed (`git show <commit>` for the details).
 - **Saf.1 also excluded from the variations above 20%**
   (`VARIATION_EXCLUDED_IDS`): a month without accident adds 20 to 30 days
   to the counter (+50% from 60 to 90) and an accident drops it to 0, so it
-  was flagged almost every month. Saf.2/3/5 stay checked there.
+  was flagged almost every month. Saf.2, Saf.3 and Saf.5 excluded too:
+  their variations (1 -> 0 accident, days lost from one month to the next)
+  are real accidents, already visible in the Safety indicators, not entry
+  errors.
 
 ## Open points
 
