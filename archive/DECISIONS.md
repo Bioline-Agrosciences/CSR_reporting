@@ -324,7 +324,19 @@ where it landed (`git show <commit>` for the details).
   - numbers in the Detail labels rounded to 2 decimals;
   - new table `CSR_outlier_bounds` (quartiles, median, bounds per series),
     so the anomaly report can draw the usual range next to the monthly
-    values instead of a long table.
+    values instead of a long table;
+  - Saf.1, Saf.2, Saf.3 and Saf.5 excluded (`OUTLIER_EXCLUDED_IDS`): Saf.1
+    is a counter (grows every month, back to 0 at each accident, so a
+    "usual range" means nothing: BFR low bound -74 days), and accidents and
+    days lost are rare events, almost always 0, so every accident was an
+    "outlier". Saf.4.2 (hours worked) stays checked.
+- **Saf.1 also excluded from the variations above 20%**
+  (`VARIATION_EXCLUDED_IDS`): a month without accident adds 20 to 30 days
+  to the counter (+50% from 60 to 90) and an accident drops it to 0, so it
+  was flagged almost every month. Saf.2, Saf.3 and Saf.5 excluded too:
+  their variations (1 -> 0 accident, days lost from one month to the next)
+  are real accidents, already visible in the Safety indicators, not entry
+  errors.
 
 ## Open points
 
