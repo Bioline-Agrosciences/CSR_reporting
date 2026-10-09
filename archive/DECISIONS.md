@@ -329,8 +329,11 @@ where it landed (`git show <commit>` for the details).
     is a counter (grows every month, back to 0 at each accident, so a
     "usual range" means nothing: BFR low bound -74 days), and accidents and
     days lost are rare events, almost always 0, so every accident was an
-    "outlier". Saf.4.2 (hours worked) stays checked; the 20% variations
-    still cover every indicator.
+    "outlier". Saf.4.2 (hours worked) stays checked.
+- **Saf.1 also excluded from the variations above 20%**
+  (`VARIATION_EXCLUDED_IDS`): a month without accident adds 20 to 30 days
+  to the counter (+50% from 60 to 90) and an accident drops it to 0, so it
+  was flagged almost every month. Saf.2/3/5 stay checked there.
 
 ## Open points
 
