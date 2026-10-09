@@ -360,6 +360,10 @@ where it landed (`git show <commit>` for the details).
   notebook on 02/10/2026 had no Year column, i.e. were still the Dataflow's
   version: the Dataflow queries must be removed so they stop overwriting
   the consolidation notebook's tables.
+- Year change: in January the referents fill in December of the previous
+  year, but `TARGET_YEAR` defaults to the current year, so December is
+  neither consolidated nor checked unless the notebook is run with the past
+  year; the anomaly report shows months without their year either. To fix.
 - Refrigerant GWPs: AR5 chosen by default; to replace if the group
   publishes its own values (add rows for the new year in
   CSR_parameters.xlsx).
