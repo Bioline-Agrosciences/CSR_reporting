@@ -348,6 +348,14 @@ where it landed (`git show <commit>` for the details).
   year). Every check, including variations, data quality notes and
   Carb.5 consistency, drops the current year's months after it, and the
   outlier bounds no longer use them.
+- **Saf.1, Saf.2, Saf.3 and Saf.5 no longer wait for Working Hours**:
+  Working Hours was only the "month is active" signal (22/09/2026), but
+  these KPIs need only the BlueKanGo export. In September 2026 only BFR and
+  BUK had their hours entered, so the other BUs had no Saf.1 and no 0
+  accidents. They are now computed for every BU and every due month
+  (`DUE_MONTHS`, up to `LAST_DUE_MONTH`). Saf.4.2 still comes from Working
+  Hours, blank = not declared. The months after the latest BlueKanGo export
+  are counted as 0 accidents: the export must be recent.
 
 ## Open points
 

@@ -157,9 +157,9 @@ AR5 100-year values).
 | ID | Source | Rule |
 |---|---|---|
 | Saf.4.2 hours worked | Working Hours `<year>`.xlsx | blank cell = month not declared yet |
-| Saf.2 / Saf.3 injuries without / with lost time | BlueKanGo export | agency workers excluded; a month in Working Hours with no accident = 0 |
-| Saf.5 days lost | BlueKanGo export | sum of stoppage days |
-| Saf.1 days without accident | BlueKanGo export | days from month end to the BU's last accident, across years |
+| Saf.2 / Saf.3 injuries without / with lost time | BlueKanGo export | agency workers excluded; a due month (up to `LAST_DUE_MONTH`) with no accident = 0, for every BU |
+| Saf.5 days lost | BlueKanGo export | sum of stoppage days, 0 as for Saf.2 / Saf.3 |
+| Saf.1 days without accident | BlueKanGo export | days from month end to the BU's last accident, across years; every due month, for every BU with at least one accident |
 
 The BlueKanGo export is read by column name (`ACCIDENT_COLUMNS` in the
 consolidation notebook: Business Unit, Date de l'accident, Intérimaire /
