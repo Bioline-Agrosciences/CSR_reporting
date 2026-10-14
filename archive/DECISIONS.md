@@ -359,6 +359,20 @@ where it landed (`git show <commit>` for the details).
   Hours, blank = not declared. The months after the latest BlueKanGo export
   are counted as 0 accidents: the export must be recent.
 
+## 14/10/2026 — Consolidated data in SharePoint: an Excel connected to the semantic model
+
+- Fabric cannot write to SharePoint through the OneLake shortcut
+  `Files/sp_csr_general`: `PermissionError` through the
+  `/lakehouse/default` mount, and `notebookutils.fs.cp` refused with 405
+  "This operation is not supported through shortcuts of account type
+  OneDriveSharePoint" (tested on 14/10/2026).
+- Rejected: a pipeline Copy activity to SharePoint (SharePoint Online File
+  connector, preview, needs a connection with write access to the library,
+  usually an Entra app from IT), which would also duplicate the data.
+- Chosen: an Excel workbook connected to `ms_csr_reporting` (Analyze in
+  Excel / connected table), saved once in SharePoint and refreshed from the
+  model. No code; readers need access to the semantic model.
+
 ## Open points
 
 - BlueKanGo label "Bioline Viridaxis" never seen in an export, unverified.

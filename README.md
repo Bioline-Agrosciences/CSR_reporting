@@ -62,6 +62,11 @@ BIB, BUK, BUS. Results land in Fabric Delta tables read by Power BI.
    - `CSR_gold_tracking`: `CSR_completion_report` with the same date
      columns.
 4. **Ratios** — computed on the fly in the Power BI dashboard.
+5. **Consolidated data in Excel** — `General/Monthly reporting/MonthlyCSR_consolidate_data.xlsx`
+   on SharePoint is an Excel workbook connected to `ms_csr_reporting`
+   (Analyze in Excel), not a copy: it refreshes from the semantic model
+   and needs access to it. Fabric cannot write to SharePoint through the
+   OneLake shortcut, so no notebook writes this file.
 
 **Daily run** — a Fabric data pipeline (folder `ATH_DataCoord /
 CSR_monthly_reporting` of the workspace) chains, each step only if the
