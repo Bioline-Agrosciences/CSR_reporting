@@ -373,17 +373,20 @@ where it landed (`git show <commit>` for the details).
   Excel / connected table), saved once in SharePoint and refreshed from the
   model. No code; readers need access to the semantic model.
 
+## 14/10/2026 — Open points closed
+
+- Confirmed: BlueKanGo label "Bioline Viridaxis" -> Viridaxis; Saf.1 reset
+  by any accident, with or without lost time; agency workers excluded from
+  every Safety KPI, Saf.1 included.
+- Dashboard visuals of BAF and BUS validated after the cleanup of
+  `nb_consolidate_data_for_CSR_report` (CSR values no longer doubled).
+- Past refrigerant totals (Viridaxis July, BUK June) corrected.
+- Dataflow overwriting `CSR_indicators_report` / `CSR_completion_report`:
+  stale, its queries were replaced by the notebook on 02/10/2026 and the
+  dataflow, now `df_CSR_dimensions`, only holds Dim_Indicator and Dim_BU.
+
 ## Open points
 
-- BlueKanGo label "Bioline Viridaxis" never seen in an export, unverified.
-- Agency-worker accidents excluded from Saf.1 too: assumption to confirm.
-- `nb_consolidate_data_for_CSR_report`: cleaned version to run and
-  validate in Fabric (check the dashboard visuals for BAF and BUS, whose
-  CSR values are no longer doubled).
-- `CSR_indicators_report` and `CSR_completion_report` read by the dashboard
-  notebook on 02/10/2026 had no Year column, i.e. were still the Dataflow's
-  version: the Dataflow queries must be removed so they stop overwriting
-  the consolidation notebook's tables.
 - Year change: in January the referents fill in December of the previous
   year, but `TARGET_YEAR` defaults to the current year, so December is
   neither consolidated nor checked unless the notebook is run with the past
