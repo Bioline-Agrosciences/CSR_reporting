@@ -106,7 +106,7 @@ runs it (see Setup).
 ## The indicator reference list
 
 `input_data/Indicator_reference_CSR.xlsx` (sheet "Reference") is the single
-source of truth: one row per indicator (46 today), with its unit,
+source of truth: one row per indicator (48 today), with its unit,
 definition and:
 
 - **Kind**: `input` (entered by someone) or `calculated` (never entered).
