@@ -20,3 +20,6 @@ CSR_referentiel_et_architecture_powerbi.md
 
 # Test cache
 .pytest_cache/
+
+# Power BI files (contain the imported data)
+*.pbix
